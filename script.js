@@ -1,727 +1,1726 @@
-/* ArrumaAí Final prototype JS: strict separation, masks, auction timer, admin, logout clearing, persistence */
-(function(){
-  // data
-  let providers = JSON.parse(localStorage.getItem('aa_providers')||'null') || [
-    {id:1,name:'João Silva',service:'Eletricista',region:'Centro',rating:4.9,price:120,badge:false,verified:true},
-    {id:2,name:'Maria P.',service:'Pintora',region:'Zona Sul',rating:4.7,price:180,badge:false,verified:true},
-    {id:3,name:'Equipe Azul',service:'Faz-tudo',region:'Bairro Alto',rating:5.0,price:200,badge:true,verified:true}
-  ];
-  let auctions = JSON.parse(localStorage.getItem('aa_auctions')||'null') || [{id:1,title:'Pintura quarto 12m²',desc:'Tinta lavável',region:'Centro',budget:250,proposals:[],status:'open',endsAt:Date.now()+60000}];
-  let calls = JSON.parse(localStorage.getItem('aa_calls')||'null') || [{id:1,title:'Troca de tomada',desc:'Tomada 3 pinos',region:'Centro',price:80,client:'Ana',status:'pending'}];
-  let clients = JSON.parse(localStorage.getItem('aa_clients')||'null') || [];
-  let transactions = JSON.parse(localStorage.getItem('aa_transactions')||'null') || [];
-  let pendingDocs = JSON.parse(localStorage.getItem('aa_pending_docs')||'null') || [];
-  
-  // save helpers
-  function saveAll(){ 
-    localStorage.setItem('aa_providers', JSON.stringify(providers)); 
-    localStorage.setItem('aa_auctions', JSON.stringify(auctions)); 
-    localStorage.setItem('aa_calls', JSON.stringify(calls));
-    localStorage.setItem('aa_clients', JSON.stringify(clients));
-    localStorage.setItem('aa_transactions', JSON.stringify(transactions));
-    localStorage.setItem('aa_pending_docs', JSON.stringify(pendingDocs));
-  }
+/**
+ * ArrumaAí — Plataforma de Serviços Profissional
+ * Sistema de roteamento e gerenciamento de estado
+ */
 
-  // user/session
-  let user = JSON.parse(localStorage.getItem('aa_user')||'null');
-  function saveUser(){ if(user) localStorage.setItem('aa_user', JSON.stringify(user)); else localStorage.removeItem('aa_user'); }
-
-  // DOM helpers
-  const $ = (s, r=document)=> r.querySelector(s);
-  const $$ = (s, r=document)=> [...r.querySelectorAll(s)];
-  function show(id){ $$('.screen').forEach(s=>s.classList.remove('active')); const el=$('#'+id); if(el) el.classList.add('active'); window.scrollTo(0,0); }
-  function toast(txt){ const d=document.createElement('div'); d.textContent=txt; Object.assign(d.style,{position:'fixed',left:'50%',transform:'translateX(-50%)',bottom:'90px',background:'#0D3B66',color:'#fff',padding:'10px 14px',borderRadius:'8px',zIndex:999}); document.body.appendChild(d); setTimeout(()=>d.remove(),1400); }
-
-  // simple mask functions (CPF and phone)
-  function maskCPF(v){ v=v.replace(/\D/g,''); v=v.slice(0,11); v=v.replace(/(\d{3})(\d)/,'$1.$2'); v=v.replace(/(\d{3})(\d)/,'$1.$2'); v=v.replace(/(\d{3})(\d{1,2})$/,'$1-$2'); return v; }
-  function maskPhone(v){ v=v.replace(/\D/g,''); if(v.length>10) v=v.replace(/(\d{2})(\d{5})(\d{4})/,'($1) $2-$3'); else v=v.replace(/(\d{2})(\d{4})(\d{0,4})/,'($1) $2-$3'); return v; }
-
-  // init UI bindings and state
-  function init(){
-    // splash -> role or session
-    renderHeader();
-    bindRoleSelection();
-    bindAuthButtons();
-    bindNavContainer();
-    if(user && user.loggedIn){ enterRole(user.role); } else { show('splash'); setTimeout(()=> show('role'),1000); }
-    // auction timers update
-    setInterval(updateAuctionTimers, 800);
-  }
-
-  function renderHeader(){
-    if(user && user.loggedIn){ $('.title').textContent = 'ArrumaAí — '+user.name; $('.subtitle').textContent = user.role==='provider' ? 'Painel do Prestador' : 'Encontrar serviços'; } else { $('.title').textContent='ArrumaAí'; $('.subtitle').textContent='Conectando você de ponta a ponta.'; }
-  }
-
-  // role selection and nav binding
-  function bindRoleSelection(){ 
-    $$('.card-role').forEach(c=> c.addEventListener('click', ()=> { 
-      const role=c.dataset.role; 
-      if(role==='provider') show('provider-entry'); 
-      else if(role==='client') show('client-entry'); 
-      else if(role==='admin') enterRole('admin');
-      else show('role'); 
-    })); 
-    $$('.back-role').forEach(b=> b.addEventListener('click', ()=> show('role'))); 
-  }
-
-  function bindAuthButtons(){
-    $('#prov-login').addEventListener('click', ()=> openAuth('login','provider'));
-    $('#prov-register').addEventListener('click', ()=> openAuth('register','provider'));
-    $('#cli-login').addEventListener('click', ()=> openAuth('login','client'));
-    $('#cli-register').addEventListener('click', ()=> openAuth('register','client'));
-    $('#logout').addEventListener('click', ()=> { logout(); });
-  }
-
-  // improved login modal (username+password only)
-  function openAuth(mode, role){
-    const modal = document.createElement('div'); modal.className='modal-center';
-    const card = document.createElement('div'); card.className='modal-card';
-    if(mode==='login'){
-      card.innerHTML = `<div class="h-row"><strong>Entrar (${role==='provider'?'Prestador':'Cliente'})</strong><button class="btn ghost close">Fechar</button></div>
-        <form id="loginForm" style="margin-top:10px;display:grid;gap:8px">
-          <input name="username" class="input" placeholder="Usuário" required />
-          <div style="display:flex;gap:8px"><input name="password" class="input" type="password" placeholder="Senha" required /><button class="btn ghost" id="togglePwd" type="button">Mostrar</button></div>
-          <label style="font-size:13px"><input type="checkbox" name="remember" /> Lembrar-me</label>
-          <div style="display:flex;gap:8px"><button class="btn primary" type="submit">Entrar</button><button class="btn ghost close" type="button">Cancelar</button></div>
-        </form>`;
-    } else {
-      if(role==='provider'){
-        card.innerHTML = `<div class="h-row"><strong>Cadastro Prestador</strong><button class="btn ghost close">Fechar</button></div>
-          <form id="regForm" style="margin-top:10px;display:grid;gap:8px">
-            <input name="name" class="input" placeholder="Nome completo" required />
-            <input name="cpf" id="cpf" class="input" placeholder="CPF" required />
-            <input name="phone" id="phone" class="input" placeholder="Telefone" required />
-            <input name="region" class="input" placeholder="Região (ex: Centro)" required />
-            <input name="service" class="input" placeholder="Serviço (Ex: Eletricista)" required />
-            <div style="display:flex;gap:8px"><button class="btn primary" type="submit">Criar conta</button><button class="btn ghost close" type="button">Cancelar</button></div>
-          </form>`;
-      } else {
-        card.innerHTML = `<div class="h-row"><strong>Cadastro Cliente</strong><button class="btn ghost close">Fechar</button></div>
-          <form id="regForm" style="margin-top:10px;display:grid;gap:8px">
-            <input name="name" class="input" placeholder="Nome completo" required />
-            <input name="cpf" id="cpf" class="input" placeholder="CPF" required />
-            <input name="phone" id="phone" class="input" placeholder="Telefone" required />
-            <input name="region" class="input" placeholder="Região (ex: Zona Sul)" required />
-            <div style="display:flex;gap:8px"><button class="btn primary" type="submit">Criar conta</button><button class="btn ghost close" type="button">Cancelar</button></div>
-          </form>`;
-      }
-    }
-    modal.appendChild(card); document.body.appendChild(modal);
-    card.querySelectorAll('.close').forEach(b=> b.addEventListener('click', ()=> modal.remove()));
-    // toggle password
-    const tog = card.querySelector('#togglePwd'); if(tog){ tog.addEventListener('click', ()=> { const p=card.querySelector('input[name=password]'); if(p.type==='password'){ p.type='text'; tog.textContent='Esconder'; } else { p.type='password'; tog.textContent='Mostrar'; } }); }
-    const loginForm = card.querySelector('#loginForm'); if(loginForm){ loginForm.addEventListener('submit', ev=>{ ev.preventDefault(); const data=Object.fromEntries(new FormData(loginForm).entries()); // minimal login: accept any
-        user = {role, name:data.username, loggedIn:true}; if(data.remember){ localStorage.setItem('aa_remember', JSON.stringify(user)); } saveUser(); renderHeader(); modal.remove(); enterRole(role); toast('Login efetuado'); }); }
-    const regForm = card.querySelector('#regForm'); if(regForm){ // masks
-      const cpf = regForm.querySelector('#cpf'); const phone = regForm.querySelector('#phone');
-      cpf && cpf.addEventListener('input', e=> e.target.value = maskCPF(e.target.value));
-      phone && phone.addEventListener('input', e=> e.target.value = maskPhone(e.target.value));
-      regForm.addEventListener('submit', ev=>{ ev.preventDefault(); const data = Object.fromEntries(new FormData(regForm).entries()); // save to localStorage as real registration
-        const newUser = {role, name:data.name, cpf:data.cpf, phone:data.phone, region:data.region, service:data.service||'', loggedIn:true};
-        // if provider add to providers list
-        if(role==='provider'){ const id = Date.now(); providers.push({id,name:data.name,service:data.service||'','region':data.region, rating:5.0, price:120, badge:false, verified:false}); saveAll(); }
-        // if client add to clients list
-        if(role==='client'){ const id = Date.now(); clients.push({id,name:data.name,cpf:data.cpf,phone:data.phone,region:data.region, loggedIn:true}); saveAll(); }
-        user = newUser; saveUser(); renderHeader(); modal.remove(); enterRole(role); toast('Cadastro realizado e logado'); }); }
-  }
-
-  function bindNavContainer(){ const nav = document.querySelector('.nav'); nav.addEventListener('click', (ev)=>{ const a = ev.target.closest('a'); if(!a) return; ev.preventDefault(); const target = a.dataset.target; // ensure only module content shows
-      $$('.nav a').forEach(x=>x.classList.remove('active')); a.classList.add('active'); // hide all role screens, then show target
-      if(user.role==='client'){ ['client-home','client-services','client-auctions','client-profile'].forEach(id=> document.getElementById(id).style.display='none'); document.getElementById(target).style.display='block'; show(target); } else if(user.role==='provider'){ ['prov-home','prov-calls','prov-auctions','prov-chats','prov-fin','prov-profile'].forEach(id=> document.getElementById(id).style.display='none'); document.getElementById(target).style.display='block'; show(target); } }); }
-
-  function enterRole(role){
-    renderHeader();
-    // strictly hide screens for other role
-    const clientScreens=['client-home','client-services','client-auctions','client-profile'];
-    const provScreens=['prov-home','prov-calls','prov-auctions','prov-chats','prov-fin','prov-profile'];
-    const adminScreens=['admin-panel'];
-    
-    clientScreens.forEach(id=> document.getElementById(id).style.display = role==='client' ? 'block' : 'none');
-    provScreens.forEach(id=> document.getElementById(id).style.display = role==='provider' ? 'block' : 'none');
-    adminScreens.forEach(id=> document.getElementById(id).style.display = role==='admin' ? 'block' : 'none');
-    
-    // build nav
-    if(role==='client'){
-      document.querySelector('.nav').innerHTML = `<a class="active" data-target="client-home">Início</a><a data-target="client-services">Serviços</a><a data-target="client-auctions">Leilões</a><a data-target="client-profile">Perfil</a>`;
-      show('client-home'); renderClientHome(); renderClientServices(); renderClientAuctions(); renderClientProfile();
-    } else if(role==='provider'){
-      document.querySelector('.nav').innerHTML = `<a class="active" data-target="prov-home">Início</a><a data-target="prov-calls">Chamados</a><a data-target="prov-auctions">Leilões</a><a data-target="prov-chats">Conversas</a><a data-target="prov-fin">Financeiro</a><a data-target="prov-profile">Perfil</a>`;
-      show('prov-home'); renderProviderHome(); renderProvCalls(); renderProvAuctions(); renderProvChats(); renderProvFin(); renderProvProfile();
-    } else if(role==='admin'){
-      document.querySelector('.nav').innerHTML = `<a class="active" data-target="admin-panel">Dashboard</a>`;
-      show('admin-panel'); renderAdminPanel();
-    }
-  }
-
-  // CLIENT RENDERERS (each module only shows its content)
-  function renderClientHome(){ const el = $('#client-home'); if(!el) return; el.innerHTML = `<div class="h-row"><h3>Início</h3><div class="small">Olá, ${user.name}</div></div><div class="card"><strong>Chamados recentes</strong><div class="list">${calls.map(c=>`<div class="item"><div style="flex:1"><strong>${c.title}</strong><div class="small">${c.desc||''}</div><div class="small">R$ ${c.price} • ${c.region}</div></div><div><button class="btn primary view-call" data-id="${c.id}">Abrir</button></div></div>`).join('')}</div></div>`; $$('.view-call').forEach(b=> b.addEventListener('click', ()=> viewCall(parseInt(b.dataset.id)))); }
-  function renderClientServices(){ const el = $('#client-services'); if(!el) return; el.innerHTML = `<div class="h-row"><h3>Serviços</h3><button class="btn ghost" id="new-service">Criar serviço</button></div><div class="list">${providers.map(p=>`<div class="item"><div style="flex:1"><strong>${p.service}</strong><div class="small">${p.name} • ${p.region}</div></div><div><button class="btn primary hire" data-id="${p.id}">Chamar</button></div></div>`).join('')}</div>`; $$('.hire').forEach(b=> b.addEventListener('click', ()=> { toast('Chamado enviado (simulado)'); })); $('#new-service') && $('#new-service').addEventListener('click', ()=> openCreateService()); }
-  function renderClientAuctions(){ const el = $('#client-auctions'); if(!el) return; el.innerHTML = `<div class="h-row"><h3>Leilões</h3><button class="btn primary" id="create-auction">Criar Leilão</button></div><div class="list">${auctions.map(a=>`<div class="item"><div style="flex:1"><strong>${a.title}</strong><div class="small">${a.region} • R$ ${a.budget}</div><div class="small">Encerra em: <span data-au="${a.id}" class="auction-time">--:--</span></div></div><div><button class="btn primary view-auction" data-id="${a.id}">Abrir</button></div></div>`).join('')}</div>`; $$('.view-auction').forEach(b=> b.addEventListener('click', ()=> viewAuction(parseInt(b.dataset.id)))); $('#create-auction') && $('#create-auction').addEventListener('click', ()=> openCreateAuction()); updateAuctionTimers(); }
-  function renderClientProfile(){ const el = $('#client-profile'); if(!el) return; const held = (JSON.parse(localStorage.getItem('aa_escrows')||'[]')).filter(x=> x.status==='held').length; el.innerHTML = `<div class="h-row"><h3>Perfil</h3><button class="btn ghost" id="edit-profile">Editar</button></div><div class="card"><strong>${user.name}</strong><div class="small">Região: ${user.region||'-'}</div><div class="small">Telefone: ${user.phone||'-'}</div></div><div style="margin-top:10px" class="card"><strong>Pagamentos retidos</strong><div class="small">${held} itens</div></div>`; $('#edit-profile') && $('#edit-profile').addEventListener('click', ()=> openEditProfile('client')); }
-
-  // PROVIDER RENDERERS
-  function renderProviderHome(){ const el = $('#prov-home'); if(!el) return; el.innerHTML = `<div class="h-row"><h3>Início Prestador</h3><div class="small">${user.name}</div></div><div class="card"><strong>Chamados recebidos</strong><div class="list">${calls.map(c=>`<div class="item"><div style="flex:1"><strong>${c.title}</strong><div class="small">${c.region} • R$ ${c.price}</div></div><div><button class="btn primary view-call-p" data-id="${c.id}">Abrir</button></div></div>`).join('')}</div></div>`; $$('.view-call-p').forEach(b=> b.addEventListener('click', ()=> viewCall(parseInt(b.dataset.id)))); }
-  function renderProvCalls(){ const el=$('#prov-calls'); if(!el) return; el.innerHTML = `<div class="h-row"><h3>Chamados</h3></div><div class="list">${calls.map(c=>`<div class="item"><div style="flex:1"><strong>${c.title}</strong><div class="small">Cliente: ${c.client} • R$ ${c.price}</div></div><div><button class="btn primary accept-call" data-id="${c.id}">Aceitar</button></div></div>`).join('')}</div>`; $$('.accept-call').forEach(b=> b.addEventListener('click', ()=> { toast('Chamado aceito (simulado)'); })); }
-  function renderProvAuctions(){ const el=$('#prov-auctions'); if(!el) return; el.innerHTML = `<div class="h-row"><h3>Leilões disponíveis</h3></div><div class="list">${auctions.filter(a=>a.status==='open').map(a=>`<div class="item"><div style="flex:1"><strong>${a.title}</strong><div class="small">Orçamento R$ ${a.budget}</div><div class="small">Encerra em: <span data-au="${a.id}" class="auction-time">--:--</span></div></div><div><button class="btn primary bid" data-id="${a.id}">Propor</button></div></div>`).join('')}</div>`; $$('.bid').forEach(b=> b.addEventListener('click', ()=> { openBid(parseInt(b.dataset.id)); })); updateAuctionTimers(); }
-  function renderProvChats(){ const el=$('#prov-chats'); if(!el) return; el.innerHTML = `<div class="h-row"><h3>Conversas</h3></div><div class="list"><div class="item"><div style="flex:1"><strong>Ana</strong><div class="small">Pedido: Troca de tomada</div></div><div><button class="btn primary" onclick="openChat()">Abrir</button></div></div></div>`; }
-  function renderProvFin(){ const el=$('#prov-fin'); if(!el) return; const esc = JSON.parse(localStorage.getItem('aa_escrows')||'[]'); el.innerHTML = `<div class="h-row"><h3>Financeiro</h3></div><div class="card"><div class="small">Total retido: R$ ${esc.filter(x=> x.status==='held').reduce((s,i)=>s+i.total,0)}</div><div class="small">Total liberado: R$ ${esc.filter(x=> x.status==='released').reduce((s,i)=>s+i.toProvider,0)}</div></div>`; }
-  function renderProvProfile(){ 
-    const el=$('#prov-profile'); 
-    if(!el) return; 
-    
-    const verificationStatus = user.verified ? '✅ Verificado' : '⏳ Aguardando verificação';
-    const verificationColor = user.verified ? '#10b981' : '#f59e0b';
-    
-    el.innerHTML = `
-      <div class="h-row"><h3>Perfil</h3><button class="btn ghost" id="edit-prov">Editar</button></div>
-      <div class="card">
-        <strong>${user.name}</strong>
-        <div class="small">Serviço: ${user.service||'-'}</div>
-        <div class="small">Região: ${user.region||'-'}</div>
-        <div class="small" style="color:${verificationColor}">Status: ${verificationStatus}</div>
-        <div style="margin-top:8px">
-          <button class="btn ghost" id="upload-doc">Enviar documento (verificação)</button>
-        </div>
-      </div>
-    `; 
-    
-    $('#edit-prov') && $('#edit-prov').addEventListener('click', ()=> openEditProfile('provider')); 
-    $('#upload-doc') && $('#upload-doc').addEventListener('click', ()=> openUploadDoc()); 
-  }
-
-  // ADMIN RENDERERS
-  function renderAdminPanel(){ 
-    const el = $('#admin-panel'); 
-    if(!el) return; 
-    
-    // Calculate stats
-    const totalProviders = providers.length;
-    const verifiedProviders = providers.filter(p => p.verified).length;
-    const pendingDocsCount = pendingDocs.length;
-    const totalTransactions = transactions.length;
-    const totalRevenue = transactions.filter(t => t.status === 'held' || t.status === 'released').reduce((sum, t) => sum + (t.amount * 0.15), 0);
-    
-    // Render providers list
-    const providersList = providers.map(p => 
-      `<div class="item">
-        <div style="flex:1">
-          <strong>${p.name}</strong>
-          <div class="small">${p.service} • ${p.region} • ${p.verified ? '✅ Verificado' : '⏳ Pendente'}</div>
-          <div class="small">Avaliação: ${p.rating}★ • Preço: R$ ${p.price}</div>
-        </div>
-      </div>`
-    ).join('') || '<div class="small">Nenhum prestador cadastrado</div>';
-    
-    // Render pending docs
-    const docsList = pendingDocs.map(doc => 
-      `<div class="item">
-        <div style="flex:1">
-          <strong>${doc.providerName}</strong>
-          <div class="small">Documento enviado em ${new Date(doc.timestamp).toLocaleDateString()}</div>
-        </div>
-        <div style="display:flex;gap:4px">
-          <button class="btn primary approve-doc" data-id="${doc.id}">Aprovar</button>
-          <button class="btn ghost reject-doc" data-id="${doc.id}">Rejeitar</button>
-        </div>
-      </div>`
-    ).join('') || '<div class="small">Nenhum documento pendente</div>';
-    
-    // Render transactions
-    const transactionsList = transactions.slice(0, 5).map(t => 
-      `<div class="item">
-        <div style="flex:1">
-          <strong>${t.description}</strong>
-          <div class="small">R$ ${t.amount} • ${t.status} • ${new Date(t.timestamp).toLocaleDateString()}</div>
-        </div>
-      </div>`
-    ).join('') || '<div class="small">Nenhuma transação recente</div>';
-    
-    el.innerHTML = `
-      <div class="h-row"><h3>Painel Administrativo</h3><button class="btn ghost back-role">Voltar</button></div>
-      <div class="admin-note">Painel de gestão da plataforma</div>
-      
-      <div class="admin-stats">
-        <div class="admin-stat">
-          <strong>${totalProviders}</strong>
-          <div class="small">Prestadores</div>
-        </div>
-        <div class="admin-stat">
-          <strong>${verifiedProviders}</strong>
-          <div class="small">Verificados</div>
-        </div>
-        <div class="admin-stat">
-          <strong>${pendingDocsCount}</strong>
-          <div class="small">Docs Pendentes</div>
-        </div>
-        <div class="admin-stat">
-          <strong>R$ ${Math.round(totalRevenue)}</strong>
-          <div class="small">Receita Total</div>
-        </div>
-      </div>
-      
-      <div class="list">
-        <div class="card">
-          <strong>Prestadores cadastrados</strong>
-          <div id="admin-providers-list">${providersList}</div>
-        </div>
-        <div class="card">
-          <strong>Documentos pendentes</strong>
-          <div id="admin-docs-list">${docsList}</div>
-        </div>
-        <div class="card">
-          <strong>Transações recentes</strong>
-          <div id="admin-transactions-list">${transactionsList}</div>
-        </div>
-      </div>
-    `;
-    
-    // Bind admin actions
-    $$('.approve-doc').forEach(b => b.addEventListener('click', () => approveDocument(parseInt(b.dataset.id))));
-    $$('.reject-doc').forEach(b => b.addEventListener('click', () => rejectDocument(parseInt(b.dataset.id))));
-  }
-
-  // AUCTION: create, simulate proposals, timer, accept proposal -> escrow
-  function openCreateAuction(){ const modal=document.createElement('div'); modal.className='modal-center'; modal.innerHTML=`<div class="modal-card"><div class="h-row"><strong>Novo leilão</strong><button class="btn ghost close">Fechar</button></div><form id="auctionForm" style="margin-top:8px;display:grid;gap:8px"><input name="title" class="input" placeholder="Título" required /><input name="budget" class="input" placeholder="Orçamento (R$)" required /><input name="region" class="input" placeholder="Região" /><textarea name="desc" class="input" placeholder="Descrição"></textarea><div style="display:flex;gap:8px"><button class="btn primary" type="submit">Criar</button><button class="btn ghost close" type="button">Cancelar</button></div></form></div>`; document.body.appendChild(modal); modal.querySelectorAll('.close').forEach(b=> b.addEventListener('click', ()=> modal.remove())); modal.querySelector('form').addEventListener('submit', ev=>{ ev.preventDefault(); const data=Object.fromEntries(new FormData(ev.target).entries()); const ends = Date.now() + (Number(data.duration || 60) * 1000 || 60000); const a={id:Date.now(),title:data.title,desc:data.desc,region:data.region,budget:Number(data.budget),proposals:[],status:'open',endsAt:ends}; auctions.unshift(a); saveAll(); modal.remove(); toast('Leilão criado — aguardando propostas (simulado)'); simulateAuctionResponses(a.id); renderClientAuctions(); renderProvAuctions(); }); }
-  function simulateAuctionResponses(auctionId){ const a = auctions.find(x=> x.id===auctionId); if(!a) return; // create 3 proposals spaced in time
-    setTimeout(()=> { a.proposals.push({name:'Maria P.',price:Math.max(50,a.budget-20),eta:'2h',rating:4.9}); saveAll(); },800);
-    setTimeout(()=> { a.proposals.push({name:'João E.',price:Math.max(40,a.budget-40),eta:'3h',rating:4.7}); saveAll(); },1500);
-    setTimeout(()=> { a.proposals.push({name:'Equipe Azul',price:Math.max(30,a.budget-10),eta:'1.5h',rating:5.0}); saveAll(); },2200);
-  }
-  function updateAuctionTimers(){ // update displayed timers
-    $$('.auction-time').forEach(span=>{ const aid = Number(span.dataset.au); const a = auctions.find(x=> x.id===aid); if(!a){ span.textContent='--:--'; return; } const diff = a.endsAt - Date.now(); if(diff<=0){ span.textContent='00:00'; a.status='closed'; saveAll(); } else { const s=Math.floor(diff/1000); const m=Math.floor(s/60); const sec=s%60; span.textContent = `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; } }); }
-
-  function viewAuction(id){ 
-    const a=auctions.find(x=> x.id===id); 
-    if(!a) return; 
-    const sh=$('#sheet'); 
-    sh.style.display='block'; 
-    const proposalsHtml = (a.proposals||[]).map((p,i)=>`<div style="border:1px solid #eef2f7;padding:8px;border-radius:8px;margin-top:8px"><strong>${p.name}</strong><div class="small">R$ ${p.price} • ${p.eta} • ${p.rating}★</div><div style="margin-top:8px"><button class="btn primary accept-prop" data-a="${a.id}" data-index="${i}">Aceitar</button></div></div>`).join('') || '<div class="small">Nenhuma proposta ainda</div>'; 
-    sh.innerHTML=`<div class="h-row"><strong>${a.title}</strong><button class="btn ghost" id="closeSheet">Fechar</button></div><div style="margin-top:8px" class="small">${a.desc}</div><div style="margin-top:8px" class="small">Orçamento: R$ ${a.budget} • Status: ${a.status}</div><div style="margin-top:10px"><strong>Propostas</strong>${proposalsHtml}</div>`; 
-    $('#closeSheet').addEventListener('click', ()=> sh.style.display='none'); 
-    $$('.accept-prop').forEach(b=> b.addEventListener('click', ()=> { 
-      const ai = Number(b.dataset.a); 
-      const idx = Number(b.dataset.index); 
-      const aq = auctions.find(x=> x.id===ai); 
-      if(!aq) return; 
-      const prop = aq.proposals[idx]; 
-      
-      // create escrow
-      const orderId = Date.now(); 
-      const commissionRate = (prop && prop.name==='Equipe Azul') ? 0.10 : 0.15; 
-      const commission = Math.round(prop.price * commissionRate); 
-      const toProvider = prop.price - commission; 
-      const escrows = JSON.parse(localStorage.getItem('aa_escrows')||'[]'); 
-      escrows.push({orderId,total:prop.price,commission,toProvider,providerName:prop.name,status:'held'}); 
-      localStorage.setItem('aa_escrows', JSON.stringify(escrows)); 
-      
-      // Add transaction
-      transactions.push({
-        id: Date.now(),
-        description: `Leilão aceito - ${a.title} por ${prop.name}`,
-        amount: prop.price,
-        status: 'held',
-        timestamp: Date.now(),
-        orderId: orderId
-      });
-      
-      saveAll();
-      sh.style.display='none'; 
-      toast('Proposta aceita e pagamento retido'); 
-      renderProvFin(); 
-    })); 
-  }
-
-  // Bidding for providers
-  function openBid(auctionId){ const modal=document.createElement('div'); modal.className='modal-center'; modal.innerHTML=`<div class="modal-card"><div class="h-row"><strong>Enviar proposta</strong><button class="btn ghost close">Fechar</button></div><form id="bidForm" style="margin-top:8px;display:grid;gap:8px"><input name="price" class="input" placeholder="Valor (R$)" required /><input name="eta" class="input" placeholder="Prazo (ex: 2h)" /><div style="display:flex;gap:8px"><button class="btn primary" type="submit">Enviar</button><button class="btn ghost close" type="button">Cancelar</button></div></form></div>`; document.body.appendChild(modal); modal.querySelectorAll('.close').forEach(b=> b.addEventListener('click', ()=> modal.remove())); modal.querySelector('form').addEventListener('submit', ev=>{ ev.preventDefault(); const data=Object.fromEntries(new FormData(ev.target).entries()); const a = auctions.find(x=> x.id===auctionId); if(!a) return; a.proposals = a.proposals || []; a.proposals.push({name:user.name || 'Prestador', price: Number(data.price), eta: data.eta || '—', rating:4.5}); saveAll(); modal.remove(); toast('Proposta enviada (simulado)'); renderProvAuctions(); renderClientAuctions(); }); }
-
-  // ESCROW release (client can confirm and release)
-  window.releaseEscrow = function(orderId){ 
-    const esc = JSON.parse(localStorage.getItem('aa_escrows')||'[]'); 
-    const e = esc.find(x=> x.orderId===orderId); 
-    if(!e) return toast('Escrow não encontrado'); 
-    e.status='released'; 
-    localStorage.setItem('aa_escrows', JSON.stringify(esc)); 
-    
-    // Update transaction
-    const transaction = transactions.find(t => t.orderId === orderId);
-    if (transaction) {
-      transaction.status = 'released';
-    }
-    
-    saveAll();
-    toast('Pagamento liberado'); 
-    renderProvFin(); 
-  }
-
-  // Chat & audio (consent)
-  let mediaRecorder, audioChunks=[];
-  window.startRecording = async function(){ if(!confirm('Você consente com a gravação de áudio desta sessão?')){ toast('Consentimento necessário'); return; } try{ const stream = await navigator.mediaDevices.getUserMedia({audio:true}); mediaRecorder = new MediaRecorder(stream); audioChunks=[]; mediaRecorder.ondataavailable = e=> audioChunks.push(e.data); mediaRecorder.onstop = async ()=>{ const blob = new Blob(audioChunks,{type:'audio/webm'}); const reader = new FileReader(); reader.onloadend = ()=>{ const b64 = reader.result; const log = $('#chat-log'); const el = document.createElement('div'); el.style.marginTop='8px'; el.innerHTML = `<strong>${user.name||'Você'}:</strong><div><audio controls src="${b64}"></audio></div>`; log.appendChild(el); log.scrollTop = log.scrollHeight; toast('Áudio anexado (simulado)'); }; reader.readAsDataURL(blob); }; mediaRecorder.start(); toast('Gravação iniciada'); }catch(err){ toast('Erro de microfone / permissão'); } };
-  window.stopRecording = function(){ if(mediaRecorder && mediaRecorder.state!=='inactive') mediaRecorder.stop(); };
-
-  window.openChat = function(){ $('#chat-title').textContent = 'Chat'; $('#chat-log').innerHTML = '<div class="small">Conversa simulada</div>'; show('chat'); setTimeout(()=>{ const el = document.createElement('div'); el.style.marginTop='8px'; el.textContent = 'Prestador: Olá! (simulado)'; $('#chat-log').appendChild(el); },700); };
-  $('#chat-send') && $('#chat-send').addEventListener('click', ()=>{ const t = $('#chat-input'); if(!t) return; const txt = t.value.trim(); if(!txt) return; const el = document.createElement('div'); el.style.marginTop='8px'; el.style.padding='8px'; el.style.background='#f1f5f9'; el.style.borderRadius='8px'; el.textContent = (user.name||'Você') + ': ' + txt; $('#chat-log').appendChild(el); t.value=''; setTimeout(()=>{ const r = document.createElement('div'); r.style.marginTop='8px'; r.style.padding='8px'; r.style.background='#fff'; r.style.borderRadius='8px'; r.textContent = 'Prestador: Recebido (simulado)'; $('#chat-log').appendChild(r); },700); });
-
-  // upload doc
-  function openUploadDoc(){ 
-    const modal=document.createElement('div'); 
-    modal.className='modal-center'; 
-    modal.innerHTML=`<div class="modal-card"><div class="h-row"><strong>Enviar documento</strong><button class="btn ghost close">Fechar</button></div><form id="docForm" style="margin-top:8px;display:grid;gap:8px"><input id="docFile" type="file" accept="image/*" /><div style="display:flex;gap:8px"><button class="btn primary" type="submit">Enviar</button><button class="btn ghost close" type="button">Cancelar</button></div></form></div>`; 
-    document.body.appendChild(modal); 
-    modal.querySelectorAll('.close').forEach(b=> b.addEventListener('click', ()=> modal.remove())); 
-    modal.querySelector('form').addEventListener('submit', async ev=>{ 
-      ev.preventDefault(); 
-      const file = document.getElementById('docFile').files[0]; 
-      if(!file){ toast('Selecione um arquivo'); return; } 
-      const reader = new FileReader(); 
-      reader.onloadend = ()=>{ 
-        const b64 = reader.result; 
-        user.docs = user.docs || []; 
-        user.docs.push(b64); 
-        user.verified = false; 
+class ArrumaAiApp {
+    constructor() {
+        this.currentUser = null;
+        this.currentScreen = 'loading';
+        this.screenHistory = [];
+        this.isAuthenticated = false;
         
-        // Add to pending docs for admin review
-        pendingDocs.push({
-          id: Date.now(),
-          providerName: user.name,
-          document: b64,
-          timestamp: Date.now(),
-          status: 'pending'
+        // Dados da aplicação
+        this.data = {
+            users: this.loadFromStorage('users') || [],
+            services: this.loadFromStorage('services') || this.getDefaultServices(),
+            providers: this.loadFromStorage('providers') || this.getDefaultProviders(),
+            clients: this.loadFromStorage('clients') || [],
+            auctions: this.loadFromStorage('auctions') || this.getDefaultAuctions(),
+            calls: this.loadFromStorage('calls') || this.getDefaultCalls(),
+            transactions: this.loadFromStorage('transactions') || [],
+            pendingDocs: this.loadFromStorage('pendingDocs') || [],
+            chats: this.loadFromStorage('chats') || this.getDefaultChats()
+        };
+        
+        this.init();
+    }
+    
+    init() {
+        this.bindEvents();
+        this.checkAuthentication();
+        this.startLoadingScreen();
+    }
+    
+    // Sistema de Roteamento
+    navigateTo(screen, data = {}) {
+        console.log('Navegando para:', screen, data); // Debug
+        
+        // Salvar tela atual no histórico
+        if (this.currentScreen !== 'loading') {
+            this.screenHistory.push({
+                screen: this.currentScreen,
+                data: this.currentScreenData || {}
+            });
+        }
+        
+        this.currentScreen = screen;
+        this.currentScreenData = data;
+        
+        // Esconder todas as telas
+        document.querySelectorAll('.screen').forEach(s => {
+            s.classList.remove('active');
         });
         
-        saveUser(); 
-        saveAll();
-        modal.remove(); 
-        toast('Documento enviado — verificação pendente'); 
-      }; 
-      reader.readAsDataURL(file); 
-    }); 
-  }
-
-  // ADMIN FUNCTIONS
-  function approveDocument(docId) {
-    const doc = pendingDocs.find(d => d.id === docId);
-    if (!doc) return;
-    
-    // Mark provider as verified
-    const provider = providers.find(p => p.name === doc.providerName);
-    if (provider) {
-      provider.verified = true;
+        // Mostrar tela desejada
+        const targetScreen = document.getElementById(screen);
+        if (targetScreen) {
+            targetScreen.classList.add('active');
+            this.renderScreen(screen, data);
+        } else {
+            // Se a tela não existe, criar dinamicamente
+            this.renderScreen(screen, data);
+        }
+        
+        // Atualizar navegação
+        this.updateNavigation();
+        
+        // Scroll para o topo
+        window.scrollTo(0, 0);
     }
     
-    // Remove from pending docs
-    pendingDocs = pendingDocs.filter(d => d.id !== docId);
-    
-    // Add transaction
-    transactions.push({
-      id: Date.now(),
-      description: `Aprovação de documento - ${doc.providerName}`,
-      amount: 0,
-      status: 'approved',
-      timestamp: Date.now()
-    });
-    
-    saveAll();
-    renderAdminPanel();
-    toast('Documento aprovado');
-  }
-  
-  function rejectDocument(docId) {
-    const doc = pendingDocs.find(d => d.id === docId);
-    if (!doc) return;
-    
-    // Remove from pending docs
-    pendingDocs = pendingDocs.filter(d => d.id !== docId);
-    
-    // Add transaction
-    transactions.push({
-      id: Date.now(),
-      description: `Rejeição de documento - ${doc.providerName}`,
-      amount: 0,
-      status: 'rejected',
-      timestamp: Date.now()
-    });
-    
-    saveAll();
-    renderAdminPanel();
-    toast('Documento rejeitado');
-  }
-
-  // edit profile
-  function openEditProfile(role){ const modal=document.createElement('div'); modal.className='modal-center'; modal.innerHTML=`<div class="modal-card"><div class="h-row"><strong>Editar perfil</strong><button class="btn ghost close">Fechar</button></div><form id="editForm" style="margin-top:8px;display:grid;gap:8px"><input name="name" class="input" placeholder="Nome" value="${user.name||''}" required /><input name="cpf" class="input" placeholder="CPF" value="${user.cpf||''}" /><input name="phone" class="input" placeholder="Telefone" value="${user.phone||''}" /><input name="region" class="input" placeholder="Região" value="${user.region||''}" /><div style="display:flex;gap:8px"><button class="btn primary" type="submit">Salvar</button><button class="btn ghost close" type="button">Cancelar</button></div></form></div>`; document.body.appendChild(modal); modal.querySelectorAll('.close').forEach(b=> b.addEventListener('click', ()=> modal.remove())); modal.querySelector('form').addEventListener('submit', ev=>{ ev.preventDefault(); const data = Object.fromEntries(new FormData(ev.target).entries()); user.name=data.name; user.cpf=data.cpf; user.phone=data.phone; user.region=data.region; saveUser(); renderHeader(); modal.remove(); toast('Perfil atualizado'); }); }
-
-  // create service simple
-  function openCreateService(){ const modal=document.createElement('div'); modal.className='modal-center'; modal.innerHTML=`<div class="modal-card"><div class="h-row"><strong>Novo serviço</strong><button class="btn ghost close">Fechar</button></div><form id="serviceForm" style="margin-top:8px;display:grid;gap:8px"><input name="title" class="input" placeholder="Título" required /><input name="price" class="input" placeholder="Preço" /><div style="display:flex;gap:8px"><button class="btn primary" type="submit">Criar</button><button class="btn ghost close" type="button">Cancelar</button></div></form></div>`; document.body.appendChild(modal); modal.querySelectorAll('.close').forEach(b=> b.addEventListener('click', ()=> modal.remove())); modal.querySelector('form').addEventListener('submit', ev=>{ ev.preventDefault(); modal.remove(); toast('Serviço criado (simulado)'); }); }
-
-  // view call
-  function viewCall(id){ const c = calls.find(x=> x.id===id); if(!c) return; const sh=$('#sheet'); sh.style.display='block'; sh.innerHTML = `<div class="h-row"><strong>${c.title}</strong><button class="btn ghost" id="closeSheet">Fechar</button></div><div style="margin-top:10px" class="small">Cliente: ${c.client} • Região: ${c.region}</div><div style="margin-top:10px"><div class="small">Preço: R$ ${c.price}</div></div><div style="margin-top:10px;display:flex;gap:8px"><button class="btn primary" id="acceptCall">Aceitar</button><button class="btn ghost" id="close2">Fechar</button></div>`; $('#closeSheet').addEventListener('click', ()=> sh.style.display='none'); $('#close2').addEventListener('click', ()=> sh.style.display='none'); $('#acceptCall').addEventListener('click', ()=> { sh.style.display='none'; toast('Chamado aceito (simulado)'); }); }
-
-  // logout clears session and sensitive data as requested
-  function logout(){ 
-    if(confirm('Deseja sair e limpar sessão?')){ 
-      user=null; 
-      localStorage.removeItem('aa_user'); 
-      localStorage.removeItem('aa_remember');
-      // clear escrows and remember flags optionally
-      // but keep registered providers and auctions - preserve them; clear sensitive data like temporary escrows
-      localStorage.removeItem('aa_escrows'); 
-      renderHeader(); 
-      show('role'); 
-      document.querySelector('.nav').innerHTML=''; 
-      toast('Desconectado e dados de sessão limpos'); 
-    } 
-  }
-
-  // utilities: expose some functions globally used in inline handlers
-  window.openCreateService = openCreateService;
-  window.openChat = function(){ $('#chat-title').textContent='Chat'; $('#chat-log').innerHTML='<div class="small">Conversa simulada</div>'; show('chat'); };
-  window.openUploadDoc = openUploadDoc;
-  window.openBid = function(aid){ openBid(aid); };
-
-  // Sample data for services
-const services = {
-  limpeza: [
-    {
-      id: 'limpeza-residencial',
-      name: 'Limpeza Residencial',
-      description: 'Limpeza completa da sua residência com produtos de qualidade.',
-      price: 120,
-      rating: 4.2,
-      icon: '🧹',
-      discount: 10
-    },
-    {
-      id: 'limpeza-pos-obra',
-      name: 'Limpeza Pós-Obra',
-      description: 'Limpeza pesada após reformas e construções.',
-      price: 250,
-      rating: 4.5,
-      icon: '🏗️',
-      discount: 15
+    goBack() {
+        if (this.screenHistory.length > 0) {
+            const previous = this.screenHistory.pop();
+            this.navigateTo(previous.screen, previous.data);
+        } else {
+            this.navigateTo('welcome-screen');
+        }
     }
-  ],
-  pintura: [
-    {
-      id: 'pintura-residencial',
-      name: 'Pintura Residencial',
-      description: 'Pintura interna ou externa da sua casa.',
-      price: 35,
-      rating: 4.7,
-      icon: '🎨',
-      priceType: 'por m²'
+    
+    // Renderização de Telas
+    renderScreen(screen, data = {}) {
+        switch (screen) {
+            case 'welcome-screen':
+                this.renderWelcomeScreen();
+                break;
+            case 'auth-screen':
+                this.renderAuthScreen(data.role);
+                break;
+            case 'client-dashboard':
+                this.renderClientDashboard();
+                break;
+            case 'provider-dashboard':
+                this.renderProviderDashboard();
+                break;
+            case 'admin-dashboard':
+                this.renderAdminDashboard();
+                break;
+            case 'services-list-screen':
+                this.renderServicesList(data.category);
+                break;
+            case 'service-detail-screen':
+                this.renderServiceDetail(data.serviceId);
+                break;
+            case 'profile-screen':
+                this.renderProfileScreen();
+                break;
+            case 'chat-screen':
+                this.renderChatScreen(data.chatId);
+                break;
+            case 'services':
+                this.renderServicesTab();
+                break;
+            case 'auctions':
+                this.renderAuctionsTab();
+                break;
+            case 'chat':
+                this.renderChatTab();
+                break;
+            case 'profile':
+                this.renderProfileTab();
+                break;
+        }
     }
-  ],
-  encanamento: [
-    {
-      id: 'desentupimento',
-      name: 'Desentupimento',
-      description: 'Desentupimento de pias, ralos e vasos sanitários.',
-      price: 150,
-      rating: 4.3,
-      icon: '🚰',
-      emergency: true
+    
+    // Tela de Boas-vindas
+    renderWelcomeScreen() {
+        // Bind eventos dos cards de role
+        document.querySelectorAll('.role-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                const role = card.dataset.role;
+                this.navigateTo('auth-screen', { role });
+            });
+        });
     }
-  ],
-  eletricista: [
-    {
-      id: 'instalacao-eletrica',
-      name: 'Instalação Elétrica',
-      description: 'Instalação e manutenção elétrica residencial.',
-      price: 80,
-      rating: 4.8,
-      icon: '🔌',
-      priceType: 'por hora'
+    
+    // Tela de Autenticação
+    renderAuthScreen(role) {
+        const authTitle = document.getElementById('auth-title');
+        const providerFields = document.querySelectorAll('.provider-only');
+        
+        // Configurar título baseado no role
+        if (role === 'provider') {
+            authTitle.textContent = 'Prestador de Serviços';
+            providerFields.forEach(field => field.style.display = 'block');
+        } else if (role === 'client') {
+            authTitle.textContent = 'Cliente';
+            providerFields.forEach(field => field.style.display = 'none');
+        } else if (role === 'admin') {
+            authTitle.textContent = 'Administrador';
+            providerFields.forEach(field => field.style.display = 'none');
+        }
+        
+        // Bind eventos das abas
+        document.querySelectorAll('.auth-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const targetTab = e.target.dataset.tab;
+                this.switchAuthTab(targetTab);
+            });
+        });
+        
+        // Bind eventos dos formulários
+        this.bindAuthForms(role);
+        
+        // Bind evento do botão voltar
+        document.getElementById('auth-back').addEventListener('click', () => {
+            this.goBack();
+        });
     }
-  ]
-};
-
-// Partners data
-const partners = [
-  {
-    id: 'casa-cia',
-    name: 'Casa & Cia',
-    discount: '15% em materiais',
-    icon: '🏪'
-  },
-  {
-    id: 'tintas-ideal',
-    name: 'Tintas Ideal',
-    discount: '10% em tintas',
-    icon: '🎨'
-  }
-];
-
-// Initialize the app
-init();
-
-// Add event listeners for category cards
-document.addEventListener('DOMContentLoaded', function() {
-  // Handle category clicks
-  document.querySelectorAll('.category-card').forEach(card => {
-    card.addEventListener('click', function() {
-      const category = this.dataset.category;
-      showServicesByCategory(category);
-    });
-  });
-
-  // Handle service requests
-  document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('btn-request-service')) {
-      const serviceId = e.target.dataset.serviceId;
-      requestService(serviceId);
+    
+    switchAuthTab(tab) {
+        // Atualizar abas ativas
+        document.querySelectorAll('.auth-tab').forEach(t => {
+            t.classList.remove('active');
+        });
+        document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+        
+        // Atualizar formulários ativos
+        document.querySelectorAll('.auth-form').forEach(f => {
+            f.classList.remove('active');
+        });
+        document.getElementById(`${tab}-form`).classList.add('active');
+        
+        // Atualizar título
+        const authTitle = document.getElementById('auth-title');
+        authTitle.textContent = tab === 'login' ? 'Entrar' : 'Cadastrar';
     }
-  });
+    
+    bindAuthForms(role) {
+        // Login form
+        const loginForm = document.getElementById('login-form');
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleLogin(role);
+        });
+        
+        // Register form
+        const registerForm = document.getElementById('register-form');
+        registerForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleRegister(role);
+        });
+        
+        // Password toggles
+        document.querySelectorAll('.password-toggle').forEach(toggle => {
+            toggle.addEventListener('click', (e) => {
+                const input = e.target.parentNode.querySelector('input');
+                const icon = e.target;
+                
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    icon.innerHTML = '<i class="fas fa-eye-slash"></i>';
+                } else {
+                    input.type = 'password';
+                    icon.innerHTML = '<i class="fas fa-eye"></i>';
+                }
+            });
+        });
+        
+        // Input masks
+        this.setupInputMasks();
+    }
+    
+    setupInputMasks() {
+        // CPF mask
+        const cpfInput = document.getElementById('register-cpf');
+        if (cpfInput) {
+            cpfInput.addEventListener('input', (e) => {
+                let value = e.target.value.replace(/\D/g, '');
+                value = value.replace(/(\d{3})(\d)/, '$1.$2');
+                value = value.replace(/(\d{3})(\d)/, '$1.$2');
+                value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+                e.target.value = value;
+            });
+        }
+        
+        // Phone mask
+        const phoneInput = document.getElementById('register-phone');
+        if (phoneInput) {
+            phoneInput.addEventListener('input', (e) => {
+                let value = e.target.value.replace(/\D/g, '');
+                if (value.length > 10) {
+                    value = value.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+                } else {
+                    value = value.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3');
+                }
+                e.target.value = value;
+            });
+        }
+    }
+    
+    // Autenticação
+    async handleLogin(role) {
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        const rememberMe = document.getElementById('remember-me').checked;
+        
+        try {
+            // Simular validação
+            if (!email || !password) {
+                this.showToast('Por favor, preencha todos os campos', 'error');
+                return;
+            }
+            
+            // Simular login (em produção, seria uma chamada para API)
+            const user = this.authenticateUser(email, password, role);
+            
+            if (user) {
+                this.currentUser = user;
+                this.isAuthenticated = true;
+                
+                if (rememberMe) {
+                    localStorage.setItem('rememberedUser', JSON.stringify(user));
+                }
+                
+                this.showToast('Login realizado com sucesso!', 'success');
+                
+                // Navegar para dashboard apropriado
+                setTimeout(() => {
+                    this.navigateToDashboard(role);
+                }, 1000);
+            } else {
+                this.showToast('Credenciais inválidas', 'error');
+            }
+        } catch (error) {
+            this.showToast('Erro ao fazer login', 'error');
+        }
+    }
+    
+    async handleRegister(role) {
+        const formData = new FormData(document.getElementById('register-form'));
+        const userData = Object.fromEntries(formData.entries());
+        
+        try {
+            // Validações
+            if (!this.validateRegistration(userData)) {
+                return;
+            }
+            
+            // Criar usuário
+            const newUser = this.createUser(userData, role);
+            
+            if (newUser) {
+                this.currentUser = newUser;
+                this.isAuthenticated = true;
+                
+                this.showToast('Conta criada com sucesso!', 'success');
+                
+                // Navegar para dashboard
+                setTimeout(() => {
+                    this.navigateToDashboard(role);
+                }, 1000);
+            }
+        } catch (error) {
+            this.showToast('Erro ao criar conta', 'error');
+        }
+    }
+    
+    validateRegistration(userData) {
+        const requiredFields = ['name', 'email', 'phone', 'cpf', 'region', 'password', 'confirm-password'];
+        
+        for (const field of requiredFields) {
+            if (!userData[field]) {
+                this.showToast(`Campo ${field} é obrigatório`, 'error');
+                return false;
+            }
+        }
+        
+        if (userData.password !== userData['confirm-password']) {
+            this.showToast('Senhas não coincidem', 'error');
+            return false;
+        }
+        
+        if (userData.password.length < 6) {
+            this.showToast('Senha deve ter pelo menos 6 caracteres', 'error');
+            return false;
+        }
+        
+        return true;
+    }
+    
+    // Dashboard do Cliente
+    renderClientDashboard() {
+        this.loadFeaturedServices();
+        this.loadRecentActivity();
+        this.bindClientDashboardEvents();
+    }
+    
+    loadFeaturedServices() {
+        const featuredContainer = document.getElementById('featured-services');
+        const featuredServices = this.data.services.filter(s => s.featured).slice(0, 3);
+        
+        featuredContainer.innerHTML = featuredServices.map(service => `
+            <div class="service-card" data-service-id="${service.id}">
+                <div class="service-header">
+                    <div class="service-icon">${service.icon}</div>
+                    <div class="service-info">
+                        <strong>${service.name}</strong>
+                        <div class="rating">${'★'.repeat(Math.floor(service.rating))}${'☆'.repeat(5 - Math.floor(service.rating))} ${service.rating}</div>
+                    </div>
+                    <button class="btn-primary btn-small">Solicitar</button>
+                </div>
+                <p class="service-description">${service.description}</p>
+                <div class="service-footer">
+                    <span class="price">A partir de R$ ${service.price}</span>
+                    ${service.discount ? `<span class="badge yellow">${service.discount}% OFF</span>` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    loadRecentActivity() {
+        const activityContainer = document.getElementById('recent-activity');
+        const recentActivity = this.data.transactions
+            .filter(t => t.userId === this.currentUser?.id)
+            .slice(0, 5);
+        
+        if (recentActivity.length === 0) {
+            activityContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-info-circle"></i>
+                    <p>Nenhuma atividade recente</p>
+                </div>
+            `;
+            return;
+        }
+        
+        activityContainer.innerHTML = recentActivity.map(activity => `
+            <div class="activity-item">
+                <div class="activity-icon">
+                    <i class="fas fa-${this.getActivityIcon(activity.type)}"></i>
+                </div>
+                <div class="activity-info">
+                    <strong>${activity.description}</strong>
+                    <span>${new Date(activity.timestamp).toLocaleDateString()}</span>
+                </div>
+                <div class="activity-amount">
+                    R$ ${activity.amount}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    bindClientDashboardEvents() {
+        // Categorias
+        document.querySelectorAll('.category-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const category = e.currentTarget.dataset.category;
+                this.navigateTo('services-list-screen', { category });
+            });
+        });
+        
+        // Serviços em destaque
+        document.querySelectorAll('.service-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                const serviceId = e.currentTarget.dataset.serviceId;
+                this.navigateTo('service-detail-screen', { serviceId });
+            });
+        });
+        
+        // Busca
+        const searchInput = document.querySelector('.search-input');
+        const searchBtn = document.querySelector('.search-btn');
+        
+        searchBtn.addEventListener('click', () => {
+            const query = searchInput.value.trim();
+            if (query) {
+                this.navigateTo('services-list-screen', { search: query });
+            }
+        });
+        
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchBtn.click();
+            }
+        });
+    }
+    
+    // Dashboard do Prestador
+    renderProviderDashboard() {
+        this.loadProviderStats();
+        this.loadActiveCalls();
+        this.loadAvailableAuctions();
+        this.bindProviderDashboardEvents();
+    }
+    
+    loadProviderStats() {
+        const callsCount = this.data.calls.filter(c => c.providerId === this.currentUser?.id).length;
+        const earnings = this.data.transactions
+            .filter(t => t.providerId === this.currentUser?.id && t.status === 'completed')
+            .reduce((sum, t) => sum + t.amount, 0);
+        const rating = this.currentUser?.rating || 4.5;
+        
+        document.getElementById('provider-calls').textContent = callsCount;
+        document.getElementById('provider-earnings').textContent = `R$ ${earnings.toFixed(2)}`;
+        document.getElementById('provider-rating').textContent = rating.toFixed(1);
+    }
+    
+    loadActiveCalls() {
+        const callsContainer = document.getElementById('active-calls');
+        const activeCalls = this.data.calls.filter(c => c.providerId === this.currentUser?.id && c.status === 'active');
+        
+        if (activeCalls.length === 0) {
+            callsContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-phone"></i>
+                    <p>Nenhum chamado ativo</p>
+                </div>
+            `;
+            return;
+        }
+        
+        callsContainer.innerHTML = activeCalls.map(call => `
+            <div class="call-item" data-call-id="${call.id}">
+                <div class="call-info">
+                    <strong>${call.title}</strong>
+                    <span>${call.clientName} • ${call.region}</span>
+                    <span>R$ ${call.price}</span>
+                </div>
+                <div class="call-actions">
+                    <button class="btn-primary btn-small">Aceitar</button>
+                    <button class="btn-ghost btn-small">Recusar</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    loadAvailableAuctions() {
+        const auctionsContainer = document.getElementById('available-auctions');
+        const availableAuctions = this.data.auctions.filter(a => a.status === 'open');
+        
+        if (availableAuctions.length === 0) {
+            auctionsContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-gavel"></i>
+                    <p>Nenhum leilão disponível</p>
+                </div>
+            `;
+            return;
+        }
+        
+        auctionsContainer.innerHTML = availableAuctions.map(auction => `
+            <div class="auction-item" data-auction-id="${auction.id}">
+                <div class="auction-info">
+                    <strong>${auction.title}</strong>
+                    <span>${auction.region} • Orçamento: R$ ${auction.budget}</span>
+                    <span>Encerra em: ${this.formatTimeRemaining(auction.endsAt)}</span>
+                </div>
+                <div class="auction-actions">
+                    <button class="btn-primary btn-small">Fazer Proposta</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    bindProviderDashboardEvents() {
+        // Botão refresh
+        document.querySelector('.btn-refresh').addEventListener('click', () => {
+            this.renderProviderDashboard();
+            this.showToast('Dados atualizados', 'success');
+        });
+        
+        // Chamados
+        document.querySelectorAll('.call-item').forEach(item => {
+            const acceptBtn = item.querySelector('.btn-primary');
+            const rejectBtn = item.querySelector('.btn-ghost');
+            
+            acceptBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const callId = item.dataset.callId;
+                this.acceptCall(callId);
+            });
+            
+            rejectBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const callId = item.dataset.callId;
+                this.rejectCall(callId);
+            });
+        });
+        
+        // Leilões
+        document.querySelectorAll('.auction-item').forEach(item => {
+            const bidBtn = item.querySelector('.btn-primary');
+            
+            bidBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const auctionId = item.dataset.auctionId;
+                this.openBidModal(auctionId);
+            });
+        });
+    }
+    
+    // Dashboard do Administrador
+    renderAdminDashboard() {
+        this.loadAdminStats();
+        this.loadAdminActivity();
+        this.bindAdminDashboardEvents();
+    }
+    
+    loadAdminStats() {
+        const totalUsers = this.data.users.length;
+        const verifiedUsers = this.data.users.filter(u => u.verified).length;
+        const pendingUsers = this.data.pendingDocs.length;
+        const totalRevenue = this.data.transactions
+            .filter(t => t.status === 'completed')
+            .reduce((sum, t) => sum + (t.amount * 0.15), 0);
+        
+        document.getElementById('total-users').textContent = totalUsers;
+        document.getElementById('verified-users').textContent = verifiedUsers;
+        document.getElementById('pending-users').textContent = pendingUsers;
+        document.getElementById('total-revenue').textContent = `R$ ${totalRevenue.toFixed(2)}`;
+    }
+    
+    loadAdminActivity() {
+        const activityContainer = document.getElementById('admin-activity');
+        const recentActivity = this.data.transactions
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 10);
+        
+        if (recentActivity.length === 0) {
+            activityContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-chart-line"></i>
+                    <p>Nenhuma atividade recente</p>
+                </div>
+            `;
+            return;
+        }
+        
+        activityContainer.innerHTML = recentActivity.map(activity => `
+            <div class="admin-activity-item">
+                <div class="activity-icon">
+                    <i class="fas fa-${this.getActivityIcon(activity.type)}"></i>
+                </div>
+                <div class="activity-info">
+                    <strong>${activity.description}</strong>
+                    <span>${new Date(activity.timestamp).toLocaleDateString()}</span>
+                </div>
+                <div class="activity-status ${activity.status}">
+                    ${activity.status}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    bindAdminDashboardEvents() {
+        // Botões de ação administrativa
+        document.querySelectorAll('.admin-action-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const action = e.currentTarget.dataset.action;
+                this.handleAdminAction(action);
+            });
+        });
+    }
+    
+    // Navegação
+    updateNavigation() {
+        const nav = document.getElementById('app-navigation');
+        
+        if (!this.isAuthenticated) {
+            nav.style.display = 'none';
+            return;
+        }
+        
+        nav.style.display = 'flex';
+        
+        // Atualizar item ativo
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        const activeItem = document.querySelector(`[data-screen="${this.currentScreen}"]`);
+        if (activeItem) {
+            activeItem.classList.add('active');
+        }
+        
+        // Bind eventos de navegação
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const targetScreen = e.currentTarget.dataset.screen;
+                this.navigateTo(targetScreen);
+            });
+        });
+    }
+    
+    navigateToDashboard(role) {
+        // Esconder todas as telas
+        document.querySelectorAll('.screen').forEach(screen => {
+            screen.classList.remove('active');
+        });
+        
+        // Mostrar dashboard apropriado
+        let dashboardScreen;
+        switch (role) {
+            case 'client':
+                dashboardScreen = 'client-dashboard';
+                break;
+            case 'provider':
+                dashboardScreen = 'provider-dashboard';
+                break;
+            case 'admin':
+                dashboardScreen = 'admin-dashboard';
+                break;
+            default:
+                dashboardScreen = 'client-dashboard';
+        }
+        
+        const dashboard = document.getElementById(dashboardScreen);
+        if (dashboard) {
+            dashboard.classList.add('active');
+            this.currentScreen = dashboardScreen;
+            this.renderScreen(dashboardScreen);
+        }
+        
+        // Mostrar navegação
+        this.updateNavigation();
+    }
+    
+    // Eventos Globais
+    bindEvents() {
+        // Logout
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            this.logout();
+        });
+        
+        // Botões voltar
+        document.querySelectorAll('.btn-back').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.goBack();
+            });
+        });
+        
+        // Navegação
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const targetScreen = e.currentTarget.dataset.screen;
+                this.navigateTo(targetScreen);
+            });
+        });
+    }
+    
+    // Autenticação e Sessão
+    checkAuthentication() {
+        const rememberedUser = localStorage.getItem('rememberedUser');
+        const currentUser = localStorage.getItem('currentUser');
+        
+        if (currentUser) {
+            this.currentUser = JSON.parse(currentUser);
+            this.isAuthenticated = true;
+            this.navigateToDashboard(this.currentUser.role);
+        } else if (rememberedUser) {
+            this.currentUser = JSON.parse(rememberedUser);
+            this.isAuthenticated = true;
+            this.navigateToDashboard(this.currentUser.role);
+        } else {
+            setTimeout(() => {
+                this.navigateTo('welcome-screen');
+            }, 2000);
+        }
+    }
+    
+    logout() {
+        if (confirm('Deseja sair da aplicação?')) {
+            this.currentUser = null;
+            this.isAuthenticated = false;
+            localStorage.removeItem('currentUser');
+            localStorage.removeItem('rememberedUser');
+            
+            this.showToast('Logout realizado com sucesso', 'success');
+            this.navigateTo('welcome-screen');
+        }
+    }
+    
+    // Utilitários
+    startLoadingScreen() {
+        setTimeout(() => {
+            if (this.currentScreen === 'loading') {
+                this.checkAuthentication();
+            }
+        }, 2000);
+    }
+    
+    showToast(message, type = 'info') {
+        const toastContainer = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icon = this.getToastIcon(type);
+        
+        toast.innerHTML = `
+            <i class="fas fa-${icon}"></i>
+            <span>${message}</span>
+        `;
+        
+        toastContainer.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    }
+    
+    getToastIcon(type) {
+        switch (type) {
+            case 'success': return 'check-circle';
+            case 'error': return 'exclamation-circle';
+            case 'warning': return 'exclamation-triangle';
+            default: return 'info-circle';
+        }
+    }
+    
+    getActivityIcon(type) {
+        switch (type) {
+            case 'service': return 'tools';
+            case 'payment': return 'credit-card';
+            case 'auction': return 'gavel';
+            case 'chat': return 'comments';
+            default: return 'circle';
+        }
+    }
+    
+    formatTimeRemaining(timestamp) {
+        const now = Date.now();
+        const diff = timestamp - now;
+        
+        if (diff <= 0) return 'Encerrado';
+        
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        
+        return `${hours}h ${minutes}m`;
+    }
+    
+    // Dados Mock
+    getDefaultServices() {
+        return [
+            {
+                id: 'limpeza-residencial',
+                name: 'Limpeza Residencial',
+                description: 'Limpeza completa da sua residência com produtos de qualidade.',
+                price: 120,
+                rating: 4.2,
+                icon: '🧹',
+                category: 'limpeza',
+                featured: true,
+                discount: 10
+            },
+            {
+                id: 'pintura-residencial',
+                name: 'Pintura Residencial',
+                description: 'Pintura interna ou externa da sua casa.',
+                price: 35,
+                rating: 4.7,
+                icon: '🎨',
+                category: 'pintura',
+                featured: true,
+                priceType: 'por m²'
+            },
+            {
+                id: 'desentupimento',
+                name: 'Desentupimento',
+                description: 'Desentupimento de pias, ralos e vasos sanitários.',
+                price: 150,
+                rating: 4.3,
+                icon: '🚰',
+                category: 'encanamento',
+                featured: true,
+                emergency: true
+            },
+            {
+                id: 'instalacao-eletrica',
+                name: 'Instalação Elétrica',
+                description: 'Instalação e manutenção elétrica residencial.',
+                price: 80,
+                rating: 4.8,
+                icon: '🔌',
+                category: 'eletricista',
+                priceType: 'por hora'
+            },
+            {
+                id: 'manutencao-geral',
+                name: 'Manutenção Geral',
+                description: 'Serviços gerais de manutenção e reparos.',
+                price: 100,
+                rating: 4.5,
+                icon: '🔧',
+                category: 'manutencao',
+                featured: false
+            },
+            {
+                id: 'jardinagem',
+                name: 'Jardinagem',
+                description: 'Cuidados com jardim, poda e paisagismo.',
+                price: 90,
+                rating: 4.6,
+                icon: '🌱',
+                category: 'jardinagem',
+                featured: false
+            }
+        ];
+    }
+    
+    getDefaultProviders() {
+        return [
+            {
+                id: 1,
+                name: 'João Silva',
+                service: 'Eletricista',
+                region: 'Centro',
+                rating: 4.9,
+                price: 120,
+                verified: true,
+                badge: false
+            },
+            {
+                id: 2,
+                name: 'Maria P.',
+                service: 'Pintora',
+                region: 'Zona Sul',
+                rating: 4.7,
+                price: 180,
+                verified: true,
+                badge: false
+            },
+            {
+                id: 3,
+                name: 'Equipe Azul',
+                service: 'Faz-tudo',
+                region: 'Bairro Alto',
+                rating: 5.0,
+                price: 200,
+                verified: true,
+                badge: true
+            }
+        ];
+    }
+    
+    getDefaultAuctions() {
+        return [
+            {
+                id: 1,
+                title: 'Pintura quarto 12m²',
+                desc: 'Tinta lavável',
+                region: 'Centro',
+                budget: 250,
+                proposals: [],
+                status: 'open',
+                endsAt: Date.now() + 60000
+            },
+            {
+                id: 2,
+                title: 'Instalação de tomadas',
+                desc: '3 tomadas novas',
+                region: 'Zona Sul',
+                budget: 180,
+                proposals: [],
+                status: 'open',
+                endsAt: Date.now() + 120000
+            },
+            {
+                id: 3,
+                title: 'Limpeza pós-obra',
+                desc: 'Limpeza pesada',
+                region: 'Zona Norte',
+                budget: 300,
+                proposals: [],
+                status: 'closed',
+                endsAt: Date.now() - 3600000
+            }
+        ];
+    }
+    
+    getDefaultCalls() {
+        return [
+            {
+                id: 1,
+                title: 'Troca de tomada',
+                desc: 'Tomada 3 pinos',
+                region: 'Centro',
+                price: 80,
+                client: 'Ana',
+                status: 'pending'
+            },
+            {
+                id: 2,
+                title: 'Pintura sala',
+                desc: 'Pintura interna',
+                region: 'Zona Sul',
+                price: 200,
+                client: 'Carlos',
+                status: 'active'
+            }
+        ];
+    }
+    
+    getDefaultChats() {
+        return [
+            {
+                id: 1,
+                participantName: 'João Silva',
+                lastMessage: 'Olá! Posso ajudar com o serviço?',
+                lastMessageTime: Date.now() - 300000,
+                unreadCount: 2,
+                status: 'active'
+            },
+            {
+                id: 2,
+                participantName: 'Maria P.',
+                lastMessage: 'Orçamento enviado com sucesso',
+                lastMessageTime: Date.now() - 600000,
+                unreadCount: 0,
+                status: 'active'
+            },
+            {
+                id: 3,
+                participantName: 'Equipe Azul',
+                lastMessage: 'Serviço confirmado para amanhã',
+                lastMessageTime: Date.now() - 900000,
+                unreadCount: 1,
+                status: 'active'
+            }
+        ];
+    }
+    
+    // Persistência
+    loadFromStorage(key) {
+        try {
+            const data = localStorage.getItem(`arrumaai_${key}`);
+            return data ? JSON.parse(data) : null;
+        } catch (error) {
+            console.error(`Erro ao carregar ${key}:`, error);
+            return null;
+        }
+    }
+    
+    saveToStorage(key, data) {
+        try {
+            localStorage.setItem(`arrumaai_${key}`, JSON.stringify(data));
+        } catch (error) {
+            console.error(`Erro ao salvar ${key}:`, error);
+        }
+    }
+    
+    // Métodos auxiliares (simulação)
+    authenticateUser(email, password, role) {
+        // Simulação de autenticação
+        const user = this.data.users.find(u => 
+            u.email === email && u.password === password && u.role === role
+        );
+        
+        if (user) {
+            localStorage.setItem('currentUser', JSON.stringify(user));
+            return user;
+        }
+        
+        // Para demonstração, criar usuário se não existir
+        if (email && password) {
+            const newUser = {
+                id: Date.now(),
+                email,
+                password,
+                role,
+                name: email.split('@')[0],
+                verified: role === 'admin' ? true : false,
+                createdAt: Date.now()
+            };
+            
+            this.data.users.push(newUser);
+            this.saveToStorage('users', this.data.users);
+            localStorage.setItem('currentUser', JSON.stringify(newUser));
+            
+            return newUser;
+        }
+        
+        return null;
+    }
+    
+    createUser(userData, role) {
+        const newUser = {
+            id: Date.now(),
+            ...userData,
+            role,
+            verified: role === 'admin' ? true : false,
+            createdAt: Date.now()
+        };
+        
+        this.data.users.push(newUser);
+        this.saveToStorage('users', this.data.users);
+        localStorage.setItem('currentUser', JSON.stringify(newUser));
+        
+        return newUser;
+    }
+    
+    acceptCall(callId) {
+        const call = this.data.calls.find(c => c.id == callId);
+        if (call) {
+            call.status = 'accepted';
+            call.providerId = this.currentUser.id;
+            this.saveToStorage('calls', this.data.calls);
+            this.showToast('Chamado aceito com sucesso!', 'success');
+            this.renderProviderDashboard();
+        }
+    }
+    
+    rejectCall(callId) {
+        const call = this.data.calls.find(c => c.id == callId);
+        if (call) {
+            call.status = 'rejected';
+            this.saveToStorage('calls', this.data.calls);
+            this.showToast('Chamado recusado', 'warning');
+            this.renderProviderDashboard();
+        }
+    }
+    
+    openBidModal(auctionId) {
+        // Implementar modal de proposta
+        this.showToast('Funcionalidade de proposta em desenvolvimento', 'info');
+    }
+    
+    handleAdminAction(action) {
+        switch (action) {
+            case 'verify-users':
+                this.showToast('Abrindo lista de usuários para verificação', 'info');
+                break;
+            case 'view-reports':
+                this.showToast('Relatórios em desenvolvimento', 'info');
+                break;
+            case 'manage-services':
+                this.showToast('Gerenciamento de serviços em desenvolvimento', 'info');
+                break;
+            case 'system-settings':
+                this.showToast('Configurações do sistema em desenvolvimento', 'info');
+                break;
+        }
+    }
+    
+    // Renderização das Abas de Navegação
+    
+    // Aba Serviços
+    renderServicesTab() {
+        const mainContent = document.querySelector('.app-main');
+        
+        // Criar conteúdo da aba serviços
+        const servicesContent = `
+            <div class="screen active" id="services-tab">
+                <div class="services-tab-content">
+                    <div class="services-tab-header">
+                        <h2>Serviços Disponíveis</h2>
+                        <div class="services-filter">
+                            <button class="filter-btn active" data-filter="all">Todos</button>
+                            <button class="filter-btn" data-filter="featured">Destaques</button>
+                            <button class="filter-btn" data-filter="nearby">Próximos</button>
+                        </div>
+                    </div>
+                    
+                    <div class="services-search">
+                        <div class="search-bar">
+                            <i class="fas fa-search search-icon"></i>
+                            <input type="text" class="search-input" placeholder="Buscar serviços..." id="services-search">
+                            <button class="search-btn">
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="services-categories">
+                        <h3>Categorias</h3>
+                        <div class="categories-grid">
+                            <div class="category-item" data-category="limpeza">
+                                <div class="category-icon">🧹</div>
+                                <span>Limpeza</span>
+                            </div>
+                            <div class="category-item" data-category="pintura">
+                                <div class="category-icon">🎨</div>
+                                <span>Pintura</span>
+                            </div>
+                            <div class="category-item" data-category="encanamento">
+                                <div class="category-icon">🚰</div>
+                                <span>Encanamento</span>
+                            </div>
+                            <div class="category-item" data-category="eletricista">
+                                <div class="category-icon">🔌</div>
+                                <span>Elétrica</span>
+                            </div>
+                            <div class="category-item" data-category="manutencao">
+                                <div class="category-icon">🔧</div>
+                                <span>Manutenção</span>
+                            </div>
+                            <div class="category-item" data-category="jardinagem">
+                                <div class="category-icon">🌱</div>
+                                <span>Jardinagem</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="services-list" id="services-list-container">
+                        <!-- Lista de serviços será carregada aqui -->
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Substituir conteúdo atual
+        this.replaceMainContent(servicesContent);
+        
+        // Carregar serviços
+        this.loadServicesList();
+        
+        // Bind eventos
+        this.bindServicesTabEvents();
+    }
+    
+    // Aba Leilões
+    renderAuctionsTab() {
+        const mainContent = document.querySelector('.app-main');
+        
+        const auctionsContent = `
+            <div class="screen active" id="auctions-tab">
+                <div class="auctions-tab-content">
+                    <div class="auctions-tab-header">
+                        <h2>Leilões Ativos</h2>
+                        <button class="btn-primary" id="create-auction-btn">
+                            <i class="fas fa-plus"></i>
+                            Criar Leilão
+                        </button>
+                    </div>
+                    
+                    <div class="auctions-filter">
+                        <button class="filter-btn active" data-filter="all">Todos</button>
+                        <button class="filter-btn" data-filter="my-auctions">Meus Leilões</button>
+                        <button class="filter-btn" data-filter="participating">Participando</button>
+                    </div>
+                    
+                    <div class="auctions-list" id="auctions-list-container">
+                        <!-- Lista de leilões será carregada aqui -->
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        this.replaceMainContent(auctionsContent);
+        this.loadAuctionsList();
+        this.bindAuctionsTabEvents();
+    }
+    
+    // Aba Chat
+    renderChatTab() {
+        const mainContent = document.querySelector('.app-main');
+        
+        const chatContent = `
+            <div class="screen active" id="chat-tab">
+                <div class="chat-tab-content">
+                    <div class="chat-tab-header">
+                        <h2>Conversas</h2>
+                        <button class="btn-primary" id="new-chat-btn">
+                            <i class="fas fa-plus"></i>
+                            Nova Conversa
+                        </button>
+                    </div>
+                    
+                    <div class="chat-search">
+                        <div class="search-bar">
+                            <i class="fas fa-search search-icon"></i>
+                            <input type="text" class="search-input" placeholder="Buscar conversas..." id="chat-search">
+                        </div>
+                    </div>
+                    
+                    <div class="chats-list" id="chats-list-container">
+                        <!-- Lista de conversas será carregada aqui -->
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        this.replaceMainContent(chatContent);
+        this.loadChatsList();
+        this.bindChatTabEvents();
+    }
+    
+    // Aba Perfil
+    renderProfileTab() {
+        const mainContent = document.querySelector('.app-main');
+        
+        const profileContent = `
+            <div class="screen active" id="profile-tab">
+                <div class="profile-tab-content">
+                    <div class="profile-header">
+                        <div class="profile-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="profile-info">
+                            <h2>${this.currentUser?.name || 'Usuário'}</h2>
+                            <p>${this.currentUser?.role === 'client' ? 'Cliente' : this.currentUser?.role === 'provider' ? 'Prestador' : 'Administrador'}</p>
+                        </div>
+                        <button class="btn-ghost" id="edit-profile-btn">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="profile-stats">
+                        <div class="stat-item">
+                            <div class="stat-number" id="profile-services">0</div>
+                            <div class="stat-label">Serviços</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number" id="profile-rating">4.5</div>
+                            <div class="stat-label">Avaliação</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number" id="profile-earnings">R$ 0</div>
+                            <div class="stat-label">Ganhos</div>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-menu">
+                        <div class="menu-item" data-action="personal-info">
+                            <i class="fas fa-user-circle"></i>
+                            <span>Informações Pessoais</span>
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                        <div class="menu-item" data-action="documents">
+                            <i class="fas fa-file-alt"></i>
+                            <span>Documentos</span>
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                        <div class="menu-item" data-action="payments">
+                            <i class="fas fa-credit-card"></i>
+                            <span>Pagamentos</span>
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                        <div class="menu-item" data-action="settings">
+                            <i class="fas fa-cog"></i>
+                            <span>Configurações</span>
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                        <div class="menu-item" data-action="help">
+                            <i class="fas fa-question-circle"></i>
+                            <span>Ajuda</span>
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="profile-actions">
+                        <button class="btn-primary btn-full" id="logout-btn-tab">
+                            <i class="fas fa-sign-out-alt"></i>
+                            Sair da Conta
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        this.replaceMainContent(profileContent);
+        this.loadProfileData();
+        this.bindProfileTabEvents();
+    }
+    
+    // Métodos auxiliares para as abas
+    
+    replaceMainContent(content) {
+        // Esconder todas as telas atuais
+        document.querySelectorAll('.screen').forEach(screen => {
+            screen.classList.remove('active');
+        });
+        
+        // Remover conteúdo das abas anteriores
+        const existingTabs = document.querySelectorAll('#services-tab, #auctions-tab, #chat-tab, #profile-tab');
+        existingTabs.forEach(tab => tab.remove());
+        
+        // Adicionar novo conteúdo
+        const mainContent = document.querySelector('.app-main');
+        mainContent.insertAdjacentHTML('beforeend', content);
+    }
+    
+    loadServicesList() {
+        const container = document.getElementById('services-list-container');
+        const services = this.data.services;
+        
+        if (services.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-tools"></i>
+                    <p>Nenhum serviço disponível no momento</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = services.map(service => `
+            <div class="service-card" data-service-id="${service.id}">
+                <div class="service-header">
+                    <div class="service-icon">${service.icon}</div>
+                    <div class="service-info">
+                        <strong>${service.name}</strong>
+                        <div class="rating">${'★'.repeat(Math.floor(service.rating))}${'☆'.repeat(5 - Math.floor(service.rating))} ${service.rating}</div>
+                    </div>
+                    <button class="btn-primary btn-small">Solicitar</button>
+                </div>
+                <p class="service-description">${service.description}</p>
+                <div class="service-footer">
+                    <span class="price">A partir de R$ ${service.price}</span>
+                    ${service.discount ? `<span class="badge yellow">${service.discount}% OFF</span>` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    loadAuctionsList() {
+        const container = document.getElementById('auctions-list-container');
+        const auctions = this.data.auctions;
+        
+        if (auctions.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-gavel"></i>
+                    <p>Nenhum leilão ativo no momento</p>
+                    <button class="btn-primary" id="create-first-auction">Criar Primeiro Leilão</button>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = auctions.map(auction => `
+            <div class="auction-card" data-auction-id="${auction.id}">
+                <div class="auction-header">
+                    <h3>${auction.title}</h3>
+                    <span class="auction-status ${auction.status}">${auction.status}</span>
+                </div>
+                <p class="auction-description">${auction.desc}</p>
+                <div class="auction-details">
+                    <span><i class="fas fa-map-marker-alt"></i> ${auction.region}</span>
+                    <span><i class="fas fa-dollar-sign"></i> R$ ${auction.budget}</span>
+                    <span><i class="fas fa-clock"></i> ${this.formatTimeRemaining(auction.endsAt)}</span>
+                </div>
+                <div class="auction-actions">
+                    <button class="btn-primary btn-small view-auction">Ver Detalhes</button>
+                    ${auction.status === 'open' ? '<button class="btn-ghost btn-small bid-auction">Fazer Proposta</button>' : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    loadChatsList() {
+        const container = document.getElementById('chats-list-container');
+        const chats = this.data.chats;
+        
+        if (chats.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-comments"></i>
+                    <p>Nenhuma conversa ativa</p>
+                    <button class="btn-primary" id="start-first-chat">Iniciar Conversa</button>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = chats.map(chat => `
+            <div class="chat-item" data-chat-id="${chat.id}">
+                <div class="chat-avatar">
+                    <i class="fas fa-user"></i>
+                </div>
+                <div class="chat-info">
+                    <div class="chat-header">
+                        <strong>${chat.participantName}</strong>
+                        <span class="chat-time">${new Date(chat.lastMessageTime).toLocaleTimeString()}</span>
+                    </div>
+                    <p class="chat-preview">${chat.lastMessage}</p>
+                </div>
+                <div class="chat-status">
+                    ${chat.unreadCount > 0 ? `<span class="unread-badge">${chat.unreadCount}</span>` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    loadProfileData() {
+        // Carregar estatísticas do perfil
+        const servicesCount = this.data.transactions.filter(t => t.userId === this.currentUser?.id).length;
+        const rating = this.currentUser?.rating || 4.5;
+        const earnings = this.data.transactions
+            .filter(t => t.userId === this.currentUser?.id && t.status === 'completed')
+            .reduce((sum, t) => sum + t.amount, 0);
+        
+        document.getElementById('profile-services').textContent = servicesCount;
+        document.getElementById('profile-rating').textContent = rating.toFixed(1);
+        document.getElementById('profile-earnings').textContent = `R$ ${earnings.toFixed(2)}`;
+    }
+    
+    // Bind eventos das abas
+    bindServicesTabEvents() {
+        // Filtros
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                this.filterServices(e.target.dataset.filter);
+            });
+        });
+        
+        // Busca
+        const searchInput = document.getElementById('services-search');
+        const searchBtn = document.querySelector('.search-btn');
+        
+        searchBtn.addEventListener('click', () => {
+            this.searchServices(searchInput.value);
+        });
+        
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.searchServices(searchInput.value);
+            }
+        });
+        
+        // Categorias
+        document.querySelectorAll('.category-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const category = e.currentTarget.dataset.category;
+                this.filterServicesByCategory(category);
+            });
+        });
+        
+        // Serviços
+        document.querySelectorAll('.service-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                const serviceId = e.currentTarget.dataset.serviceId;
+                this.openServiceDetail(serviceId);
+            });
+        });
+    }
+    
+    bindAuctionsTabEvents() {
+        // Filtros
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                this.filterAuctions(e.target.dataset.filter);
+            });
+        });
+        
+        // Criar leilão
+        document.getElementById('create-auction-btn').addEventListener('click', () => {
+            this.openCreateAuctionModal();
+        });
+        
+        // Ver detalhes do leilão
+        document.querySelectorAll('.view-auction').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const auctionId = e.target.closest('.auction-card').dataset.auctionId;
+                this.openAuctionDetail(auctionId);
+            });
+        });
+        
+        // Fazer proposta
+        document.querySelectorAll('.bid-auction').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const auctionId = e.target.closest('.auction-card').dataset.auctionId;
+                this.openBidModal(auctionId);
+            });
+        });
+    }
+    
+    bindChatTabEvents() {
+        // Nova conversa
+        document.getElementById('new-chat-btn').addEventListener('click', () => {
+            this.openNewChatModal();
+        });
+        
+        // Busca de conversas
+        const searchInput = document.getElementById('chat-search');
+        searchInput.addEventListener('input', (e) => {
+            this.searchChats(e.target.value);
+        });
+        
+        // Conversas
+        document.querySelectorAll('.chat-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const chatId = e.currentTarget.dataset.chatId;
+                this.openChat(chatId);
+            });
+        });
+    }
+    
+    bindProfileTabEvents() {
+        // Editar perfil
+        document.getElementById('edit-profile-btn').addEventListener('click', () => {
+            this.openEditProfileModal();
+        });
+        
+        // Menu items
+        document.querySelectorAll('.menu-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const action = e.currentTarget.dataset.action;
+                this.handleProfileAction(action);
+            });
+        });
+        
+        // Logout
+        document.getElementById('logout-btn-tab').addEventListener('click', () => {
+            this.performLogout();
+        });
+    }
+    
+    // Métodos de funcionalidade
+    filterServices(filter) {
+        // Implementar filtro de serviços
+        this.showToast(`Filtro aplicado: ${filter}`, 'info');
+    }
+    
+    searchServices(query) {
+        // Implementar busca de serviços
+        this.showToast(`Buscando por: ${query}`, 'info');
+    }
+    
+    filterServicesByCategory(category) {
+        // Implementar filtro por categoria
+        this.showToast(`Categoria selecionada: ${category}`, 'info');
+    }
+    
+    openServiceDetail(serviceId) {
+        // Implementar detalhes do serviço
+        this.showToast(`Abrindo serviço: ${serviceId}`, 'info');
+    }
+    
+    filterAuctions(filter) {
+        // Implementar filtro de leilões
+        this.showToast(`Filtro de leilões: ${filter}`, 'info');
+    }
+    
+    openCreateAuctionModal() {
+        // Implementar modal de criar leilão
+        this.showToast('Modal de criar leilão em desenvolvimento', 'info');
+    }
+    
+    openAuctionDetail(auctionId) {
+        // Implementar detalhes do leilão
+        this.showToast(`Abrindo leilão: ${auctionId}`, 'info');
+    }
+    
+    openBidModal(auctionId) {
+        // Implementar modal de proposta
+        this.showToast(`Modal de proposta para leilão: ${auctionId}`, 'info');
+    }
+    
+    openNewChatModal() {
+        // Implementar modal de nova conversa
+        this.showToast('Modal de nova conversa em desenvolvimento', 'info');
+    }
+    
+    searchChats(query) {
+        // Implementar busca de conversas
+        this.showToast(`Buscando conversas: ${query}`, 'info');
+    }
+    
+    openChat(chatId) {
+        // Implementar abertura de chat
+        this.showToast(`Abrindo chat: ${chatId}`, 'info');
+    }
+    
+    openEditProfileModal() {
+        // Implementar modal de editar perfil
+        this.showToast('Modal de editar perfil em desenvolvimento', 'info');
+    }
+    
+    // Logout Funcional
+    performLogout() {
+        // Mostrar confirmação
+        if (confirm('Tem certeza que deseja sair da conta?')) {
+            // Limpar dados da sessão
+            localStorage.removeItem('currentUser');
+            localStorage.removeItem('rememberedUser');
+            
+            // Resetar estado da aplicação
+            this.currentUser = null;
+            this.isAuthenticated = false;
+            this.currentScreen = 'loading';
+            this.screenHistory = [];
+            
+            // Esconder navegação
+            const nav = document.getElementById('app-navigation');
+            if (nav) {
+                nav.style.display = 'none';
+            }
+            
+            // Esconder todas as telas
+            document.querySelectorAll('.screen').forEach(screen => {
+                screen.classList.remove('active');
+            });
+            
+            // Mostrar tela de carregamento
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.classList.add('active');
+            }
+            
+            // Mostrar mensagem de sucesso
+            this.showToast('Logout realizado com sucesso!', 'success');
+            
+            // Redirecionar para tela inicial após 2 segundos
+            setTimeout(() => {
+                this.navigateTo('welcome-screen');
+            }, 2000);
+        }
+    }
+    
+    // Ações específicas do perfil
+    handleProfileAction(action) {
+        switch (action) {
+            case 'personal-info':
+                this.showToast('Informações Pessoais em desenvolvimento', 'info');
+                break;
+            case 'documents':
+                this.showToast('Documentos em desenvolvimento', 'info');
+                break;
+            case 'payments':
+                this.showToast('Pagamentos em desenvolvimento', 'info');
+                break;
+            case 'schedule':
+                this.showToast('Agenda em desenvolvimento', 'info');
+                break;
+            case 'favorites':
+                this.showToast('Favoritos em desenvolvimento', 'info');
+                break;
+            case 'history':
+                this.showToast('Histórico em desenvolvimento', 'info');
+                break;
+            case 'settings':
+                this.showToast('Configurações em desenvolvimento', 'info');
+                break;
+            case 'help':
+                this.showToast('Ajuda em desenvolvimento', 'info');
+                break;
+            case 'system-info':
+                this.showToast('Informações do Sistema em desenvolvimento', 'info');
+                break;
+            case 'user-management':
+                this.showToast('Gerenciamento de Usuários em desenvolvimento', 'info');
+                break;
+            case 'reports':
+                this.showToast('Relatórios em desenvolvimento', 'info');
+                break;
+            default:
+                this.showToast(`Ação: ${action} em desenvolvimento`, 'info');
+        }
+    }
+}
 
-  // Initialize featured services
-  renderFeaturedServices();
-  renderPartners();
+// Inicializar aplicação quando DOM estiver pronto
+document.addEventListener('DOMContentLoaded', () => {
+    window.arrumaAiApp = new ArrumaAiApp();
 });
 
-function renderFeaturedServices() {
-  const featuredContainer = document.querySelector('.featured-services');
-  if (!featuredContainer) return;
-  
-  // Get all services and sort by rating
-  const allServices = Object.values(services).flat();
-  const featured = [...allServices].sort((a, b) => b.rating - a.rating).slice(0, 3);
-  
-  featuredContainer.innerHTML = featured.map(service => `
-    <div class="service-card">
-      <div class="service-header">
-        <div class="service-icon">${service.icon}</div>
-        <div class="service-info">
-          <strong>${service.name}</strong>
-          <div class="rating">${'★'.repeat(Math.floor(service.rating))}${'☆'.repeat(5 - Math.floor(service.rating))} ${service.rating}</div>
-        </div>
-        <button class="btn ghost small btn-request-service" data-service-id="${service.id}">Solicitar</button>
-      </div>
-      <p class="service-description">${service.description}</p>
-      <div class="service-footer">
-        <span class="price">A partir de R$ ${service.price}${service.priceType ? ' ' + service.priceType : ''}</span>
-        ${service.discount ? `<span class="badge yellow">${service.discount}% OFF</span>` : ''}
-        ${service.emergency ? '<span class="badge red">Urgente</span>' : ''}
-      </div>
-    </div>
-  `).join('');
-}
+// Expor métodos globais para compatibilidade
+window.showToast = (message, type) => {
+    if (window.arrumaAiApp) {
+        window.arrumaAiApp.showToast(message, type);
+    }
+};
 
-function renderPartners() {
-  const partnersContainer = document.querySelector('.partners');
-  if (!partnersContainer) return;
-  
-  partnersContainer.innerHTML = partners.map(partner => `
-    <div class="partner-card">
-      <div class="partner-logo">${partner.icon}</div>
-      <div class="partner-info">
-        <strong>${partner.name}</strong>
-        <div class="small">${partner.discount}</div>
-      </div>
-    </div>
-  `).join('');
-}
-
-function showServicesByCategory(category) {
-  const categoryServices = services[category] || [];
-  const servicesList = document.createElement('div');
-  servicesList.className = 'services-list';
-  servicesList.innerHTML = `
-    <div class="h-row">
-      <h3>${category.charAt(0).toUpperCase() + category.slice(1)}</h3>
-      <button class="btn ghost back-to-home">Voltar</button>
-    </div>
-    <div class="list">
-      ${categoryServices.map(service => `
-        <div class="service-card">
-          <div class="service-header">
-            <div class="service-icon">${service.icon}</div>
-            <div class="service-info">
-              <strong>${service.name}</strong>
-              <div class="rating">${'★'.repeat(Math.floor(service.rating))}${'☆'.repeat(5 - Math.floor(service.rating))} ${service.rating}</div>
-            </div>
-            <button class="btn primary btn-request-service" data-service-id="${service.id}">Solicitar</button>
-          </div>
-          <p class="service-description">${service.description}</p>
-          <div class="service-footer">
-            <span class="price">R$ ${service.price}${service.priceType ? ' ' + service.priceType : ''}</span>
-            ${service.discount ? `<span class="badge yellow">${service.discount}% OFF</span>` : ''}
-            ${service.emergency ? '<span class="badge red">Urgente</span>' : ''}
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-  
-  // Replace client home with services list
-  const clientHome = document.getElementById('client-home');
-  clientHome.style.display = 'none';
-  clientHome.parentNode.insertBefore(servicesList, clientHome.nextSibling);
-  
-  // Add back button handler
-  servicesList.querySelector('.back-to-home').addEventListener('click', () => {
-    servicesList.remove();
-    clientHome.style.display = 'block';
-  });
-}
-
-function requestService(serviceId) {
-  // Find the service
-  let service = null;
-  for (const category in services) {
-    service = services[category].find(s => s.id === serviceId);
-    if (service) break;
-  }
-  
-  if (!service) return;
-  
-  // Show service request form
-  const form = document.createElement('div');
-  form.className = 'service-request-form';
-  form.innerHTML = `
-    <div class="card">
-      <div class="h-row">
-        <h3>Solicitar ${service.name}</h3>
-        <button class="btn ghost back-to-services">Voltar</button>
-      </div>
-      <div class="form-group">
-        <label>Endereço</label>
-        <input type="text" class="input" placeholder="Onde o serviço será realizado?">
-      </div>
-      <div class="form-group">
-        <label>Data e Hora</label>
-        <input type="datetime-local" class="input">
-      </div>
-      <div class="form-group">
-        <label>Detalhes adicionais (opcional)</label>
-        <textarea class="input" rows="3" placeholder="Descreva melhor o que você precisa"></textarea>
-      </div>
-      <div class="form-actions">
-        <button class="btn primary" id="confirm-request">Solicitar Orçamento</button>
-      </div>
-    </div>
-  `;
-  
-  // Replace current view with form
-  const currentView = document.querySelector('.services-list') || document.getElementById('client-home');
-  currentView.style.display = 'none';
-  currentView.parentNode.insertBefore(form, currentView.nextSibling);
-  
-  // Add back button handler
-  form.querySelector('.back-to-services').addEventListener('click', () => {
-    form.remove();
-    currentView.style.display = 'block';
-  });
-  
-  // Handle form submission
-  form.querySelector('#confirm-request').addEventListener('click', () => {
-    alert('Solicitação enviada com sucesso! Em breve você receberá orçamentos dos nossos prestadores.');
-    // In a real app, this would submit to a backend
-    form.remove();
-    document.getElementById('client-home').style.display = 'block';
-  });
-}
-
-  document.addEventListener('DOMContentLoaded', init);
-  // persist initial providers/auctions/calls
-  saveAll();
-  // expose releaseEscrow for dev buttons
-  window.releaseEscrow = function(orderId){ const esc = JSON.parse(localStorage.getItem('aa_escrows')||'[]'); const e = esc.find(x=> x.orderId===orderId); if(!e) return alert('not found'); e.status='released'; localStorage.setItem('aa_escrows', JSON.stringify(esc)); alert('released'); };
-})();
+window.navigateTo = (screen, data) => {
+    if (window.arrumaAiApp) {
+        window.arrumaAiApp.navigateTo(screen, data);
+    }
+};

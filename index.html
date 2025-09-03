@@ -1,121 +1,561 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArrumaAí — Final</title><link href="styles.css" rel="stylesheet"></head><body>
-<div class="app">
-  <div class="top"><div class="logo"><img src="logo.png" alt="logo"></div><div><div class="title">ArrumaAí</div><div class="subtitle">Conectando você de ponta a ponta.</div></div><div style="margin-left:auto"><button id="logout" class="btn ghost" style="background:transparent;border:none;color:#fff">Sair</button></div></div>
-  <div class="viewport">
-    <div id="splash" class="screen"><div style="height:60vh;display:grid;place-items:center"><div style="text-align:center"><img src="logo.png" style="width:84px;height:84px;object-fit:contain"><div style="font-weight:900;font-size:18px;color:#0D3B66;margin-top:8px">ArrumaAí</div><div class="small">Seu app de serviços gerais</div></div></div></div>
-
-    <div id="role" class="screen active"><h3>Como quer usar?</h3><div class="list"><div class="card card-role" data-role="client"><strong>Sou cliente</strong><div class="small">Contratar serviços</div></div><div class="card card-role" data-role="provider"><strong>Sou prestador</strong><div class="small">Oferecer serviços</div></div><div class="card card-role" data-role="admin"><strong>Administrador</strong><div class="small">Gestão da plataforma</div></div></div></div>
-
-    <div id="provider-entry" class="screen"><div class="h-row"><h3>Prestador</h3><button class="btn ghost back-role">Voltar</button></div><p class="small">Faça login (usuário+senha) ou cadastre-se</p><div style="display:flex;gap:8px;margin-top:8px"><button id="prov-login" class="btn primary">Entrar</button><button id="prov-register" class="btn ghost">Cadastrar</button></div></div>
-
-    <div id="client-entry" class="screen"><div class="h-row"><h3>Cliente</h3><button class="btn ghost back-role">Voltar</button></div><p class="small">Faça login (usuário+senha) ou cadastre-se</p><div style="display:flex;gap:8px;margin-top:8px"><button id="cli-login" class="btn primary">Entrar</button><button id="cli-register" class="btn ghost">Cadastrar</button></div></div>
-
-    <!-- client screens -->
-    <div id="client-home" class="screen">
-      <div class="search-bar">
-        <input type="text" class="input" placeholder="O que você precisa?" id="service-search">
-        <button class="btn primary">Buscar</button>
-      </div>
-      
-      <h3>Categorias</h3>
-      <div class="categories">
-        <div class="category-card" data-category="limpeza">
-          <div class="category-icon">🧹</div>
-          <span>Limpeza</span>
-        </div>
-        <div class="category-card" data-category="pintura">
-          <div class="category-icon">🎨</div>
-          <span>Pintura</span>
-        </div>
-        <div class="category-card" data-category="encanamento">
-          <div class="category-icon">🚰</div>
-          <span>Encanamento</span>
-        </div>
-        <div class="category-card" data-category="eletricista">
-          <div class="category-icon">🔌</div>
-          <span>Elétrica</span>
-        </div>
-      </div>
-      
-      <h3>Serviços em destaque</h3>
-      <div class="featured-services">
-        <div class="service-card">
-          <div class="service-header">
-            <div class="service-icon">🧹</div>
-            <div class="service-info">
-              <strong>Limpeza Residencial</strong>
-              <div class="rating">★★★★☆ 4.2</div>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ArrumaAí — Plataforma de Serviços</title>
+    <link href="styles.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo">
+                    <img src="logo.png" alt="ArrumaAí">
+                </div>
+                <div class="header-info">
+                    <h1 class="app-title">ArrumaAí</h1>
+                    <p class="app-subtitle">Conectando você de ponta a ponta</p>
+                </div>
+                <div class="header-actions">
+                    <button id="logout-btn" class="btn-ghost" style="display: none;">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
             </div>
-            <button class="btn ghost small">Solicitar</button>
-          </div>
-          <p class="service-description">Limpeza completa da sua residência com produtos de qualidade.</p>
-          <div class="service-footer">
-            <span class="price">A partir de R$ 120</span>
-            <span class="badge yellow">10% OFF</span>
-          </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="app-main">
+            <!-- Loading Screen -->
+            <div id="loading-screen" class="screen active">
+                <div class="loading-content">
+                    <div class="loading-logo">
+                        <img src="logo.png" alt="ArrumaAí">
+                    </div>
+                    <h2>ArrumaAí</h2>
+                    <p>Seu app de serviços gerais</p>
+                    <div class="loading-spinner"></div>
+                </div>
+            </div>
+
+            <!-- Welcome Screen -->
+            <div id="welcome-screen" class="screen">
+                <div class="welcome-content">
+                    <div class="welcome-header">
+                        <h2>Bem-vindo ao ArrumaAí</h2>
+                        <p>Como você gostaria de usar nossa plataforma?</p>
+                    </div>
+                    
+                    <div class="role-selection">
+                        <div class="role-card" data-role="client">
+                            <div class="role-icon">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <div class="role-info">
+                                <h3>Sou Cliente</h3>
+                                <p>Contratar serviços e encontrar profissionais</p>
+                            </div>
+                            <div class="role-arrow">
+                                <i class="fas fa-chevron-right"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="role-card" data-role="provider">
+                            <div class="role-icon">
+                                <i class="fas fa-tools"></i>
+                            </div>
+                            <div class="role-info">
+                                <h3>Sou Prestador</h3>
+                                <p>Oferecer serviços e expandir meu negócio</p>
+                            </div>
+                            <div class="role-arrow">
+                                <i class="fas fa-chevron-right"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="role-card" data-role="admin">
+                            <div class="role-icon">
+                                <i class="fas fa-shield-alt"></i>
+                            </div>
+                            <div class="role-info">
+                                <h3>Administrador</h3>
+                                <p>Gestão da plataforma e monitoramento</p>
+                            </div>
+                            <div class="role-arrow">
+                                <i class="fas fa-chevron-right"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Authentication Screens -->
+            <div id="auth-screen" class="screen">
+                <div class="auth-content">
+                    <div class="auth-header">
+                        <button class="btn-back" id="auth-back">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h2 id="auth-title">Entrar</h2>
+                    </div>
+                    
+                    <div class="auth-tabs">
+                        <button class="auth-tab active" data-tab="login">Entrar</button>
+                        <button class="auth-tab" data-tab="register">Cadastrar</button>
+                    </div>
+                    
+                    <!-- Login Form -->
+                    <form id="login-form" class="auth-form active">
+                        <div class="form-group">
+                            <label for="login-email">E-mail</label>
+                            <input type="email" id="login-email" class="form-input" placeholder="seu@email.com" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="login-password">Senha</label>
+                            <div class="password-input">
+                                <input type="password" id="login-password" class="form-input" placeholder="Sua senha" required>
+                                <button type="button" class="password-toggle">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-options">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="remember-me">
+                                <span class="checkmark"></span>
+                                Lembrar-me
+                            </label>
+                            <a href="#" class="forgot-password">Esqueci a senha</a>
+                        </div>
+                        
+                        <button type="submit" class="btn-primary btn-full">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Entrar
+                        </button>
+                    </form>
+                    
+                    <!-- Register Form -->
+                    <form id="register-form" class="auth-form">
+                        <div class="form-group">
+                            <label for="register-name">Nome Completo</label>
+                            <input type="text" id="register-name" class="form-input" placeholder="Seu nome completo" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="register-email">E-mail</label>
+                            <input type="email" id="register-email" class="form-input" placeholder="seu@email.com" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="register-phone">Telefone</label>
+                            <input type="tel" id="register-phone" class="form-input" placeholder="(11) 99999-9999" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="register-cpf">CPF</label>
+                            <input type="text" id="register-cpf" class="form-input" placeholder="000.000.000-00" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="register-region">Região</label>
+                            <select id="register-region" class="form-input" required>
+                                <option value="">Selecione sua região</option>
+                                <option value="centro">Centro</option>
+                                <option value="zona-sul">Zona Sul</option>
+                                <option value="zona-norte">Zona Norte</option>
+                                <option value="zona-leste">Zona Leste</option>
+                                <option value="zona-oeste">Zona Oeste</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group provider-only" style="display: none;">
+                            <label for="register-service">Serviço Principal</label>
+                            <select id="register-service" class="form-input">
+                                <option value="">Selecione seu serviço</option>
+                                <option value="eletricista">Eletricista</option>
+                                <option value="encanador">Encanador</option>
+                                <option value="pintor">Pintor</option>
+                                <option value="limpeza">Limpeza</option>
+                                <option value="faz-tudo">Faz-tudo</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="register-password">Senha</label>
+                            <div class="password-input">
+                                <input type="password" id="register-password" class="form-input" placeholder="Crie uma senha forte" required>
+                                <button type="button" class="password-toggle">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="register-confirm-password">Confirmar Senha</label>
+                            <div class="password-input">
+                                <input type="password" id="register-confirm-password" class="form-input" placeholder="Confirme sua senha" required>
+                                <button type="button" class="password-toggle">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-options">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="terms-accept" required>
+                                <span class="checkmark"></span>
+                                Aceito os <a href="#" class="link">Termos de Uso</a> e <a href="#" class="link">Política de Privacidade</a>
+                            </label>
+                        </div>
+                        
+                        <button type="submit" class="btn-primary btn-full">
+                            <i class="fas fa-user-plus"></i>
+                            Criar Conta
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Client Dashboard -->
+            <div id="client-dashboard" class="screen">
+                <div class="dashboard-content">
+                    <!-- Search Section -->
+                    <div class="search-section">
+                        <div class="search-bar">
+                            <i class="fas fa-search search-icon"></i>
+                            <input type="text" class="search-input" placeholder="O que você precisa?">
+                            <button class="search-btn">
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Categories Section -->
+                    <div class="categories-section">
+                        <h3>Categorias</h3>
+                        <div class="categories-grid">
+                            <div class="category-item" data-category="limpeza">
+                                <div class="category-icon">🧹</div>
+                                <span>Limpeza</span>
+                            </div>
+                            <div class="category-item" data-category="pintura">
+                                <div class="category-icon">🎨</div>
+                                <span>Pintura</span>
+                            </div>
+                            <div class="category-item" data-category="encanamento">
+                                <div class="category-icon">🚰</div>
+                                <span>Encanamento</span>
+                            </div>
+                            <div class="category-item" data-category="eletricista">
+                                <div class="category-icon">🔌</div>
+                                <span>Elétrica</span>
+                            </div>
+                            <div class="category-item" data-category="manutencao">
+                                <div class="category-icon">🔧</div>
+                                <span>Manutenção</span>
+                            </div>
+                            <div class="category-item" data-category="jardinagem">
+                                <div class="category-icon">🌱</div>
+                                <span>Jardinagem</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Featured Services -->
+                    <div class="featured-section">
+                        <div class="section-header">
+                            <h3>Serviços em Destaque</h3>
+                            <a href="#" class="see-all">Ver todos</a>
+                        </div>
+                        <div class="services-grid" id="featured-services">
+                            <!-- Services will be loaded here -->
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="activity-section">
+                        <h3>Atividade Recente</h3>
+                        <div class="activity-list" id="recent-activity">
+                            <!-- Activity items will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Provider Dashboard -->
+            <div id="provider-dashboard" class="screen">
+                <div class="dashboard-content">
+                    <!-- Stats Cards -->
+                    <div class="stats-section">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="fas fa-phone"></i>
+                                </div>
+                                <div class="stat-info">
+                                    <h4>Chamados</h4>
+                                    <span class="stat-number" id="provider-calls">0</span>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="fas fa-dollar-sign"></i>
+                                </div>
+                                <div class="stat-info">
+                                    <h4>Ganhos</h4>
+                                    <span class="stat-number" id="provider-earnings">R$ 0</span>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="fas fa-star"></i>
+                                </div>
+                                <div class="stat-info">
+                                    <h4>Avaliação</h4>
+                                    <span class="stat-number" id="provider-rating">4.5</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Active Calls -->
+                    <div class="calls-section">
+                        <div class="section-header">
+                            <h3>Chamados Ativos</h3>
+                            <button class="btn-refresh">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                        <div class="calls-list" id="active-calls">
+                            <!-- Calls will be loaded here -->
+                        </div>
+                    </div>
+
+                    <!-- Available Auctions -->
+                    <div class="auctions-section">
+                        <h3>Leilões Disponíveis</h3>
+                        <div class="auctions-list" id="available-auctions">
+                            <!-- Auctions will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Dashboard -->
+            <div id="admin-dashboard" class="screen">
+                <div class="dashboard-content">
+                    <!-- Admin Stats -->
+                    <div class="admin-stats-section">
+                        <div class="admin-stats-grid">
+                            <div class="admin-stat-card">
+                                <div class="admin-stat-icon">
+                                    <i class="fas fa-users"></i>
+                                </div>
+                                <div class="admin-stat-info">
+                                    <h4>Total de Usuários</h4>
+                                    <span class="admin-stat-number" id="total-users">0</span>
+                                </div>
+                            </div>
+                            <div class="admin-stat-card">
+                                <div class="admin-stat-icon">
+                                    <i class="fas fa-check-circle"></i>
+                                </div>
+                                <div class="admin-stat-info">
+                                    <h4>Verificados</h4>
+                                    <span class="admin-stat-number" id="verified-users">0</span>
+                                </div>
+                            </div>
+                            <div class="admin-stat-card">
+                                <div class="admin-stat-icon">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div class="admin-stat-info">
+                                    <h4>Pendentes</h4>
+                                    <span class="admin-stat-number" id="pending-users">0</span>
+                                </div>
+                            </div>
+                            <div class="admin-stat-card">
+                                <div class="admin-stat-icon">
+                                    <i class="fas fa-chart-line"></i>
+                                </div>
+                                <div class="admin-stat-info">
+                                    <h4>Receita</h4>
+                                    <span class="admin-stat-number" id="total-revenue">R$ 0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin Actions -->
+                    <div class="admin-actions-section">
+                        <h3>Ações Administrativas</h3>
+                        <div class="admin-actions-grid">
+                            <button class="admin-action-btn" data-action="verify-users">
+                                <i class="fas fa-user-check"></i>
+                                <span>Verificar Usuários</span>
+                            </button>
+                            <button class="admin-action-btn" data-action="view-reports">
+                                <i class="fas fa-chart-bar"></i>
+                                <span>Relatórios</span>
+                            </button>
+                            <button class="admin-action-btn" data-action="manage-services">
+                                <i class="fas fa-cogs"></i>
+                                <span>Gerenciar Serviços</span>
+                            </button>
+                            <button class="admin-action-btn" data-action="system-settings">
+                                <i class="fas fa-sliders-h"></i>
+                                <span>Configurações</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="admin-activity-section">
+                        <h3>Atividade Recente</h3>
+                        <div class="admin-activity-list" id="admin-activity">
+                            <!-- Admin activity will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Services List Screen -->
+            <div id="services-list-screen" class="screen">
+                <div class="services-content">
+                    <div class="services-header">
+                        <button class="btn-back" id="services-back">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h2 id="services-title">Serviços</h2>
+                    </div>
+                    
+                    <div class="services-filter">
+                        <div class="filter-tabs">
+                            <button class="filter-tab active" data-filter="all">Todos</button>
+                            <button class="filter-tab" data-filter="featured">Destaques</button>
+                            <button class="filter-tab" data-filter="nearby">Próximos</button>
+                        </div>
+                    </div>
+                    
+                    <div class="services-list" id="services-list">
+                        <!-- Services will be loaded here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Service Detail Screen -->
+            <div id="service-detail-screen" class="screen">
+                <div class="service-detail-content">
+                    <div class="service-detail-header">
+                        <button class="btn-back" id="service-detail-back">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h2 id="service-detail-title">Detalhes do Serviço</h2>
+                    </div>
+                    
+                    <div class="service-detail-body" id="service-detail-body">
+                        <!-- Service details will be loaded here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profile Screen -->
+            <div id="profile-screen" class="screen">
+                <div class="profile-content">
+                    <div class="profile-header">
+                        <button class="btn-back" id="profile-back">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h2>Meu Perfil</h2>
+                    </div>
+                    
+                    <div class="profile-body" id="profile-body">
+                        <!-- Profile content will be loaded here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Screen -->
+            <div id="chat-screen" class="screen">
+                <div class="chat-content">
+                    <div class="chat-header">
+                        <button class="btn-back" id="chat-back">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <div class="chat-user-info">
+                            <h3 id="chat-user-name">Chat</h3>
+                            <span id="chat-user-status">Online</span>
+                        </div>
+                        <button class="btn-more">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="chat-messages" id="chat-messages">
+                        <!-- Messages will be loaded here -->
+                    </div>
+                    
+                    <div class="chat-input-area">
+                        <div class="chat-input-container">
+                            <input type="text" class="chat-input" id="chat-input" placeholder="Digite sua mensagem...">
+                            <button class="chat-send-btn" id="chat-send-btn">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                        <div class="chat-actions">
+                            <button class="chat-action-btn" id="chat-attach">
+                                <i class="fas fa-paperclip"></i>
+                            </button>
+                            <button class="chat-action-btn" id="chat-voice">
+                                <i class="fas fa-microphone"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Navigation -->
+        <nav class="app-navigation" id="app-navigation" style="display: none;">
+            <div class="nav-item active" data-screen="client-dashboard">
+                <i class="fas fa-home"></i>
+                <span>Início</span>
+            </div>
+            <div class="nav-item" data-screen="services">
+                <i class="fas fa-list"></i>
+                <span>Serviços</span>
+            </div>
+            <div class="nav-item" data-screen="auctions">
+                <i class="fas fa-gavel"></i>
+                <span>Leilões</span>
+            </div>
+            <div class="nav-item" data-screen="chat">
+                <i class="fas fa-comments"></i>
+                <span>Chat</span>
+            </div>
+            <div class="nav-item" data-screen="profile">
+                <i class="fas fa-user"></i>
+                <span>Perfil</span>
+            </div>
+        </nav>
+
+        <!-- Modal Container -->
+        <div id="modal-container" class="modal-container">
+            <!-- Modals will be dynamically created here -->
         </div>
-      </div>
-      
-      <h3>Parceiros com desconto</h3>
-      <div class="partners">
-        <div class="partner-card">
-          <div class="partner-logo">🏪</div>
-          <div class="partner-info">
-            <strong>Casa & Cia</strong>
-            <div class="small">15% em materiais</div>
-          </div>
+
+        <!-- Toast Container -->
+        <div id="toast-container" class="toast-container">
+            <!-- Toast messages will be dynamically created here -->
         </div>
-      </div>
     </div>
-    <div id="client-services" class="screen" style="display:none"></div>
-    <div id="client-auctions" class="screen" style="display:none"></div>
-    <div id="client-profile" class="screen" style="display:none"></div>
 
-    <!-- provider screens -->
-    <div id="prov-home" class="screen" style="display:none"></div>
-    <div id="prov-calls" class="screen" style="display:none"></div>
-    <div id="prov-auctions" class="screen" style="display:none"></div>
-    <div id="prov-chats" class="screen" style="display:none"></div>
-    <div id="prov-fin" class="screen" style="display:none"></div>
-    <div id="prov-profile" class="screen" style="display:none"></div>
-
-    <!-- admin screen -->
-    <div id="admin-panel" class="screen" style="display:none">
-      <div class="h-row"><h3>Painel Administrativo</h3><button class="btn ghost back-role">Voltar</button></div>
-      <div class="admin-note">Painel de gestão da plataforma</div>
-      <div class="list">
-        <div class="card">
-          <strong>Prestadores cadastrados</strong>
-          <div id="admin-providers-list" class="small">Carregando...</div>
-        </div>
-        <div class="card">
-          <strong>Documentos pendentes</strong>
-          <div id="admin-docs-list" class="small">Carregando...</div>
-        </div>
-        <div class="card">
-          <strong>Transações recentes</strong>
-          <div id="admin-transactions-list" class="small">Carregando...</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- chat screen -->
-    <div id="chat" class="screen" style="display:none">
-      <div class="h-row"><h3 id="chat-title">Chat</h3><button class="btn ghost back-role">Voltar</button></div>
-      <div id="chat-log" class="chat-log"></div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <input id="chat-input" class="input" placeholder="Escrever mensagem..." />
-        <button id="chat-send" class="btn primary">Enviar</button>
-        <button class="btn ghost" onclick="startRecording()">Gravar</button>
-        <button class="btn ghost" onclick="stopRecording()">Parar</button>
-      </div>
-    </div>
-
-    <div id="sheet" class="sheet"></div>
-  </div>
-
-  <div class="nav"></div>
-</div>
-
-<script src="script.js"></script>
-</body></html>
+    <script src="script.js"></script>
+</body>
+</html>
